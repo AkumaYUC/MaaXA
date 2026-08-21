@@ -1,0 +1,13 @@
+{
+    "点击主菜单": {
+        "recognition": "TemplateMatch",
+        "template": "主菜单.png",
+        "roi": [
+            32,
+            62,
+            19,
+            19
+        ],
+        "action": "Click"
+    }
+}
