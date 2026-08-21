@@ -52,12 +52,12 @@
         }
     ],
     // 可选的 agent 示例
-    // "agent": {
-    //     "child_exec": "python",
-    //     "child_args": [
-    //         "./agent/main.py"
-    //     ]
-    // },
+     "agent": {
+         "child_exec": "E:/MAAFWStudy/MAAXA/.venv/Scripts/python.exe",
+         "child_args": [
+             "E:/MAAFWStudy/MAAXA/agent/main.py"
+         ]
+     },
     "task": [
         {
             "name": "普通任务",

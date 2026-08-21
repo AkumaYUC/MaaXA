@@ -1,13 +1,151 @@
 {
+    "拉回金蝶云": {
+      "action": "Custom",
+      "custom_action": "Win32BringToFront",
+      "custom_action_param": {
+        "window_regex": "金蝶|云星空|Kingdee.BOS.XPF"
+      },
+      "next": [
+        "点击主菜单"
+      ],
+      "$__mpe_code": {
+        "position": {
+          "x": 12,
+          "y": 149
+        }
+      }
+    },
     "点击主菜单": {
-        "recognition": "TemplateMatch",
-        "template": "主菜单.png",
-        "roi": [
-            32,
-            62,
-            19,
-            19
-        ],
-        "action": "Click"
+      "recognition": "TemplateMatch",
+      "roi": [
+        10,
+        55,
+        179,
+        31
+      ],
+      "template": "主菜单.png",
+      "action": "Click",
+      "next": [
+        "点击应用菜单"
+      ],
+      "$__mpe_code": {
+        "position": {
+          "x": 332,
+          "y": 146
+        }
+      }
+    },
+    "点击应用菜单":{
+      "recognition": "TemplateMatch",
+      "roi": [
+        10,
+        55,
+        179,
+        31
+      ],
+      "template": "应用菜单.png",
+      "action": "Click",
+      "next": [
+        "点击直接调拨单列表",
+        "点击库存管理",
+        "点击供应链"
+      ],
+      "$__mpe_code": {
+        "position": {
+          "x": 652,
+          "y": 136
+        }
+      }
+    },
+    "点击供应链":{
+      "recognition": "OCR",
+      "roi": [
+        9,
+        89,
+        174,
+        623
+      ],
+      "expected": "供应链",
+      "action": "Click",
+      "next": [
+        "点击直接调拨单列表",
+        "点击库存管理"
+      ],
+      "$__mpe_code": {
+        "position": {
+          "x": 972,
+          "y": 12
+        }
+      }
+    },
+    "点击库存管理":{
+      "recognition": "OCR",
+      "roi": [
+        9,
+        89,
+        174,
+        623
+      ],
+      "expected": "库存管理",
+      "action": "Click",
+      "next": [
+        "点击直接调拨单列表"
+      ],
+      "$__mpe_code": {
+        "position": {
+          "x": 1292,
+          "y": 99
+        }
+      }
+    },
+    "点击直接调拨单列表":{
+      "recognition": "OCR",
+      "roi": [
+        196,
+        142,
+        967,
+        565
+      ],
+      "expected": "直接调拨单列表",
+      "action": "Click",
+      "next": [
+        "点击新增"
+      ],
+      "$__mpe_code": {
+        "position": {
+          "x": 1612,
+          "y": 99
+        }
+      }
+    },
+    "点击新增":{
+      "recognition": "OCR",
+      "roi": [
+        107,
+        90,
+        250,
+        18
+      ],
+      "expected": "新增",
+      "action": "Click",
+      "$__mpe_code": {
+        "position": {
+          "x": 1932,
+          "y": 117
+        }
+      }
+    },
+    "$__mpe_config_直接调拨单.json": {
+      "$__mpe_code": {
+        "prefix": "",
+        "coordinateMode": "absolute-v1",
+        "savedViewport": {
+          "x": -635,
+          "y": 143,
+          "zoom": 0.65
+        },
+        "filename": "直接调拨单.json",
+        "version": "v1.8.1"
+      }
     }
 }
