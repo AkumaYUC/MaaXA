@@ -5,6 +5,7 @@ from maa.toolkit import Toolkit
 
 import my_action
 import my_reco
+import transfer_actions
 
 
 def main():

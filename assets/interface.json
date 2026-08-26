@@ -31,8 +31,8 @@
                 // 截图及控制方式，请根据项目实际情况修改
                 // 文档: https://maafw.xyz/docs/2.4-ControlMethods
                 "screencap": "PrintWindow", // 截图方式
-                "mouse": "PostMessageWithCursorPos", // 鼠标控制方式
-                "keyboard": "PostMessageWithCursorPos" // 键盘控制方式
+                "mouse": "Seize", // 鼠标控制方式(原：PostMessageWithCursorPos)
+                "keyboard": "Seize" // 键盘控制方式（原：PostMessageWithCursorPos）
             }
         }
     ],

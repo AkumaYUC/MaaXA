@@ -1,151 +1,328 @@
 {
-    "拉回金蝶云": {
-      "action": "Custom",
-      "custom_action": "Win32BringToFront",
-      "custom_action_param": {
-        "window_regex": "金蝶|云星空|Kingdee.BOS.XPF"
-      },
-      "next": [
-        "点击主菜单"
-      ],
-      "$__mpe_code": {
-        "position": {
-          "x": 12,
-          "y": 149
+    "$__mpe_config_直接调拨单.json": {
+        "$__mpe_code": {
+            "prefix": "",
+            "coordinateMode": "absolute-v1",
+            "lastSyncTime": 1787731132550,
+            "isModifiedExternally": false,
+            "isDeleted": false,
+            "filePath": "E:\\MAAFWStudy\\MAAXA\\assets\\resource\\pipeline\\直接调拨单.json",
+            "savedViewport": {
+                "x": -1472,
+                "y": 213,
+                "zoom": 0.46
+            },
+            "filename": "直接调拨单.json",
+            "version": "v1.9.0"
         }
-      }
+    },
+    "回车确认（调出库存组织）": {
+        "action": "ClickKey",
+        "key": [
+            13
+        ],
+        "post_delay": 500,
+        "next": [
+            "确认切换组织",
+            "点击调入库存组织"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 3532,
+                "y": 51
+            }
+        }
+    },
+    "拉回金蝶云": {
+        "action": "Custom",
+        "custom_action": "Win32BringToFront",
+        "custom_action_param": {
+            "window_regex": "金蝶|云星空|Kingdee.BOS.XPF"
+        },
+        "next": [
+            "读取Excel数据"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 12,
+                "y": 25
+            }
+        }
     },
     "点击主菜单": {
-      "recognition": "TemplateMatch",
-      "roi": [
-        10,
-        55,
-        179,
-        31
-      ],
-      "template": "主菜单.png",
-      "action": "Click",
-      "next": [
-        "点击应用菜单"
-      ],
-      "$__mpe_code": {
-        "position": {
-          "x": 332,
-          "y": 146
+        "recognition": "TemplateMatch",
+        "roi": [
+            10,
+            55,
+            179,
+            31
+        ],
+        "template": "主菜单.png",
+        "action": "Click",
+        "next": [
+            "点击应用菜单"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 652,
+                "y": 22
+            }
         }
-      }
     },
-    "点击应用菜单":{
-      "recognition": "TemplateMatch",
-      "roi": [
-        10,
-        55,
-        179,
-        31
-      ],
-      "template": "应用菜单.png",
-      "action": "Click",
-      "next": [
-        "点击直接调拨单列表",
-        "点击库存管理",
-        "点击供应链"
-      ],
-      "$__mpe_code": {
-        "position": {
-          "x": 652,
-          "y": 136
+    "点击供应链": {
+        "recognition": "OCR",
+        "roi": [
+            9,
+            89,
+            174,
+            623
+        ],
+        "expected": "供应链",
+        "action": "Click",
+        "next": [
+            "点击直接调拨单列表",
+            "点击库存管理"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 1292,
+                "y": 138
+            }
         }
-      }
     },
-    "点击供应链":{
-      "recognition": "OCR",
-      "roi": [
-        9,
-        89,
-        174,
-        623
-      ],
-      "expected": "供应链",
-      "action": "Click",
-      "next": [
-        "点击直接调拨单列表",
-        "点击库存管理"
-      ],
-      "$__mpe_code": {
-        "position": {
-          "x": 972,
-          "y": 12
+    "点击库存管理": {
+        "recognition": "OCR",
+        "roi": [
+            9,
+            89,
+            174,
+            623
+        ],
+        "expected": "库存管理",
+        "action": "Click",
+        "next": [
+            "点击直接调拨单列表"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 1612,
+                "y": 72
+            }
         }
-      }
     },
-    "点击库存管理":{
-      "recognition": "OCR",
-      "roi": [
-        9,
-        89,
-        174,
-        623
-      ],
-      "expected": "库存管理",
-      "action": "Click",
-      "next": [
-        "点击直接调拨单列表"
-      ],
-      "$__mpe_code": {
-        "position": {
-          "x": 1292,
-          "y": 99
+    "点击应用菜单": {
+        "recognition": "TemplateMatch",
+        "roi": [
+            10,
+            55,
+            179,
+            31
+        ],
+        "template": "应用菜单.png",
+        "action": "Click",
+        "next": [
+            "点击直接调拨单列表",
+            "点击库存管理",
+            "点击供应链"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 972,
+                "y": 12
+            }
         }
-      }
     },
-    "点击直接调拨单列表":{
-      "recognition": "OCR",
-      "roi": [
-        196,
-        142,
-        967,
-        565
-      ],
-      "expected": "直接调拨单列表",
-      "action": "Click",
-      "next": [
-        "点击新增"
-      ],
-      "$__mpe_code": {
-        "position": {
-          "x": 1612,
-          "y": 99
+    "点击新增": {
+        "recognition": "OCR",
+        "roi": [
+            113,
+            90,
+            34,
+            18
+        ],
+        "expected": "新增",
+        "action": "Click",
+        "next": [
+            "读取单据"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 2252,
+                "y": 72
+            }
         }
-      }
     },
-    "点击新增":{
-      "recognition": "OCR",
-      "roi": [
-        107,
-        90,
-        250,
-        18
-      ],
-      "expected": "新增",
-      "action": "Click",
-      "$__mpe_code": {
-        "position": {
-          "x": 1932,
-          "y": 117
+    "点击直接调拨单列表": {
+        "recognition": "OCR",
+        "roi": [
+            196,
+            142,
+            967,
+            565
+        ],
+        "expected": "直接调拨单列表",
+        "action": "Click",
+        "post_delay": 500,
+        "next": [
+            "点击新增"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 1932,
+                "y": 44
+            }
         }
-      }
     },
-    "$__mpe_config_直接调拨单.json": {
-      "$__mpe_code": {
-        "prefix": "",
-        "coordinateMode": "absolute-v1",
-        "savedViewport": {
-          "x": -635,
-          "y": 143,
-          "zoom": 0.65
+    "点击调入库存组织": {
+        "recognition": "OCR",
+        "roi": [
+            20,
+            116,
+            1149,
+            366
+        ],
+        "expected": [
+            "调入库存组织"
+        ],
+        "action": "Click",
+        "target_offset": [
+            106,
+            1,
+            0,
+            0
+        ],
+        "next": [
+            "粘贴调入库存组织"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 4172,
+                "y": 56
+            }
+        }
+    },
+    "点击调出库存组织": {
+        "recognition": "OCR",
+        "roi": [
+            20,
+            116,
+            1149,
+            366
+        ],
+        "expected": "调出库存组织",
+        "action": "Click",
+        "target_offset": [
+            106,
+            1,
+            0,
+            0
+        ],
+        "next": [
+            "粘贴调出库存组织"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 2892,
+                "y": 58
+            }
+        }
+    },
+    "粘贴调出库存组织": {
+        "action": "Custom",
+        "custom_action": "PasteOrderField",
+        "custom_action_param": {
+            "field": "source_org",
+            "select_all": true
         },
-        "filename": "直接调拨单.json",
-        "version": "v1.8.1"
-      }
+        "post_delay": 500,
+        "next": [
+            "回车确认（调出库存组织）"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 3212,
+                "y": 45
+            }
+        }
+    },
+    "读取Excel数据": {
+        "action": "Custom",
+        "custom_action": "ReadTransferExcel",
+        "custom_action_param": {
+            "path": "E:/测试/直接调拨单测试2.xlsx"
+        },
+        "next": [
+            "点击主菜单"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 332,
+                "y": 25
+            }
+        }
+    },
+    "读取单据": {
+        "pre_delay": 0,
+        "action": "Custom",
+        "custom_action": "NextOrder",
+        "custom_action_param": "",
+        "post_delay": 0,
+        "next": [
+            "点击调出库存组织"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 2572,
+                "y": 29
+            }
+        }
+    },
+    "确认切换组织": {
+        "recognition": "OCR",
+        "expected": [
+            "确定"
+        ],
+        "action": "Click",
+        "next": [
+            "点击调入库存组织"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 3852,
+                "y": 146
+            }
+        }
+    },
+    "粘贴调入库存组织": {
+        "pre_delay": 0,
+        "action": "Custom",
+        "custom_action": "PasteOrderField",
+        "custom_action_param": {
+            "field": "target_org",
+            "select_all": true
+        },
+        "post_delay": 500,
+        "next": [
+            "回车确认（调入库存组织）"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 4492,
+                "y": 27
+            }
+        }
+    },
+    "回车确认（调入库存组织）": {
+        "action": "ClickKey",
+        "key": [
+            13
+        ],
+        "post_delay": 500,
+        "$__mpe_code": {
+            "position": {
+                "x": 4812,
+                "y": 77
+            }
+        }
     }
 }
