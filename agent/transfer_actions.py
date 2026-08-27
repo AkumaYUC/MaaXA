@@ -50,6 +50,17 @@ _KEYEVENTF_KEYUP = 0x0002  #按键释放标志
 _VK_A = 0x41  #字母A的虚拟键码
 
 
+@AgentServer.custom_action("PasteText")  #粘贴固定文本（pipeline调用）
+class PasteText(CustomAction):
+    def run(self, context, argv):
+        text = json.loads(argv.custom_action_param or "{}").get("text", "")
+        if not text:
+            return False
+        pyperclip.copy(text)
+        _ctrl_v()
+        return True
+
+
 @AgentServer.custom_action("PasteOrderField")  #当前单指定字段 → 文本 → 剪贴板 → Ctrl+V粘贴到焦点单元格
 class PasteOrderField(CustomAction):
 

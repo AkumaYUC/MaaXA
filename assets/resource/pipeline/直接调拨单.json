@@ -3,17 +3,33 @@
         "$__mpe_code": {
             "prefix": "",
             "coordinateMode": "absolute-v1",
-            "lastSyncTime": 1787736697578,
-            "isModifiedExternally": false,
+            "lastSyncTime": 1787797887448,
+            "isModifiedExternally": true,
             "isDeleted": false,
             "filePath": "E:\\MAAFWStudy\\MAAXA\\assets\\resource\\pipeline\\直接调拨单.json",
             "savedViewport": {
-                "x": -2913,
-                "y": -22,
-                "zoom": 0.49
+                "x": -211,
+                "y": 113,
+                "zoom": 0.57
             },
             "filename": "直接调拨单.json",
             "version": "v1.9.0"
+        }
+    },
+    "回车确认（搜索）": {
+        "action": "ClickKey",
+        "key": [
+            13
+        ],
+        "post_delay": 500,
+        "next": [
+            "点击新增"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 1932,
+                "y": 28
+            }
         }
     },
     "回车确认（调入库存组织）": {
@@ -28,7 +44,7 @@
         "$__mpe_code": {
             "position": {
                 "x": 4812,
-                "y": 387
+                "y": 475
             }
         }
     },
@@ -45,7 +61,7 @@
         "$__mpe_code": {
             "position": {
                 "x": 3532,
-                "y": 635
+                "y": 460
             }
         }
     },
@@ -61,7 +77,39 @@
         "$__mpe_code": {
             "position": {
                 "x": 5772,
-                "y": 394
+                "y": 482
+            }
+        }
+    },
+    "异常点击确定（调入库存组织）": {
+        "recognition": "OCR",
+        "expected": [
+            "确定"
+        ],
+        "action": "Click",
+        "next": [
+            "[JumpBack]粘贴调入库存组织"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 4172,
+                "y": 822
+            }
+        }
+    },
+    "异常点击确定（调出库存组织）": {
+        "recognition": "OCR",
+        "expected": [
+            "确定"
+        ],
+        "action": "Click",
+        "next": [
+            "[JumpBack]粘贴调出库存组织"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 3852,
+                "y": 82
             }
         }
     },
@@ -77,7 +125,7 @@
         "$__mpe_code": {
             "position": {
                 "x": 12,
-                "y": 93
+                "y": 77
             }
         }
     },
@@ -92,12 +140,13 @@
         "template": "主菜单.png",
         "action": "Click",
         "next": [
+            "点击搜索",
             "点击应用菜单"
         ],
         "$__mpe_code": {
             "position": {
                 "x": 652,
-                "y": 90
+                "y": 74
             }
         }
     },
@@ -118,7 +167,7 @@
         "$__mpe_code": {
             "position": {
                 "x": 1292,
-                "y": 206
+                "y": 382
             }
         }
     },
@@ -146,7 +195,7 @@
         "$__mpe_code": {
             "position": {
                 "x": 6092,
-                "y": 391
+                "y": 479
             }
         }
     },
@@ -166,7 +215,7 @@
         "$__mpe_code": {
             "position": {
                 "x": 1612,
-                "y": 140
+                "y": 319
             }
         }
     },
@@ -188,7 +237,29 @@
         "$__mpe_code": {
             "position": {
                 "x": 972,
-                "y": 80
+                "y": 328
+            }
+        }
+    },
+    "点击搜索": {
+        "recognition": "TemplateMatch",
+        "roi": [
+            829,
+            1,
+            159,
+            44
+        ],
+        "template": [
+            "搜索.png"
+        ],
+        "action": "Click",
+        "next": [
+            "搜索直接调拨单"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 972,
+                "y": 39
             }
         }
     },
@@ -206,10 +277,13 @@
         "next": [
             "读取单据"
         ],
+        "on_error": [
+            "[JumpBack]点击应用菜单"
+        ],
         "$__mpe_code": {
             "position": {
                 "x": 2252,
-                "y": 112
+                "y": 72
             }
         }
     },
@@ -230,7 +304,7 @@
         "$__mpe_code": {
             "position": {
                 "x": 1932,
-                "y": 112
+                "y": 339
             }
         }
     },
@@ -258,7 +332,7 @@
         "$__mpe_code": {
             "position": {
                 "x": 4172,
-                "y": 644
+                "y": 479
             }
         }
     },
@@ -284,7 +358,7 @@
         "$__mpe_code": {
             "position": {
                 "x": 2892,
-                "y": 126
+                "y": 98
             }
         }
     },
@@ -312,7 +386,7 @@
         "$__mpe_code": {
             "position": {
                 "x": 5132,
-                "y": 391
+                "y": 479
             }
         }
     },
@@ -328,112 +402,29 @@
         "$__mpe_code": {
             "position": {
                 "x": 3852,
-                "y": 634
+                "y": 450
             }
         }
     },
-    "粘贴调入库存组织": {
-        "pre_delay": 0,
-        "action": "Custom",
-        "custom_action": "PasteOrderField",
-        "custom_action_param": {
-            "field": "target_org",
-            "select_all": true
-        },
-        "post_delay": 0,
+    "粘贴异常处理（调入库存组织）": {
+        "recognition": "OCR",
+        "roi": [
+            373,
+            191,
+            431,
+            279
+        ],
+        "expected": [
+            "粘贴异常"
+        ],
+        "action": "Click",
         "next": [
-            "粘贴异常处理（调入库存组织）",
-            "回车确认（调入库存组织）"
+            "异常点击确定（调入库存组织）"
         ],
         "$__mpe_code": {
             "position": {
-                "x": 4492,
-                "y": 352
-            }
-        }
-    },
-    "粘贴调出库存组织": {
-        "action": "Custom",
-        "custom_action": "PasteOrderField",
-        "custom_action_param": {
-            "field": "source_org",
-            "select_all": true
-        },
-        "post_delay": 500,
-        "next": [
-            "粘贴异常处理（调出库存组织）",
-            "回车确认（调出库存组织）"
-        ],
-        "$__mpe_code": {
-            "position": {
-                "x": 3212,
-                "y": 103
-            }
-        }
-    },
-    "读取Excel数据": {
-        "action": "Custom",
-        "custom_action": "ReadTransferExcel",
-        "custom_action_param": {
-            "path": "E:/测试/直接调拨单测试2.xlsx"
-        },
-        "next": [
-            "点击主菜单"
-        ],
-        "$__mpe_code": {
-            "position": {
-                "x": 332,
-                "y": 93
-            }
-        }
-    },
-    "读取单据": {
-        "pre_delay": 0,
-        "action": "Custom",
-        "custom_action": "NextOrder",
-        "custom_action_param": "",
-        "post_delay": 0,
-        "next": [
-            "点击调出库存组织"
-        ],
-        "$__mpe_code": {
-            "position": {
-                "x": 2572,
-                "y": 97
-            }
-        }
-    },
-    "调拨类型输入": {
-        "pre_delay": 0,
-        "action": "Custom",
-        "custom_action": "PasteOrderField",
-        "custom_action_param": {
-            "field": "transfer_type",
-            "select_all": true
-        },
-        "post_delay": 0,
-        "next": [
-            "回车确认（调拨类型）"
-        ],
-        "$__mpe_code": {
-            "position": {
-                "x": 5452,
-                "y": 362
-            }
-        }
-    },
-    "输入备注": {
-        "pre_delay": 0,
-        "action": "Custom",
-        "custom_action": "PasteOrderField",
-        "custom_action_param": {
-            "field": "remark"
-        },
-        "post_delay": 0,
-        "$__mpe_code": {
-            "position": {
-                "x": 6412,
-                "y": 362
+                "x": 4812,
+                "y": 800
             }
         }
     },
@@ -455,61 +446,130 @@
         "$__mpe_code": {
             "position": {
                 "x": 3532,
-                "y": 12
+                "y": 157
             }
         }
     },
-    "异常点击确定（调出库存组织）": {
-        "recognition": "OCR",
-        "expected": [
-            "确定"
-        ],
-        "action": "Click",
+    "粘贴调入库存组织": {
+        "pre_delay": 0,
+        "action": "Custom",
+        "custom_action": "PasteOrderField",
+        "custom_action_param": {
+            "field": "target_org",
+            "select_all": true
+        },
+        "post_delay": 0,
         "next": [
-            "[JumpBack]粘贴调出库存组织"
+            "粘贴异常处理（调入库存组织）",
+            "回车确认（调入库存组织）"
         ],
         "$__mpe_code": {
             "position": {
-                "x": 3852,
-                "y": 60
+                "x": 4492,
+                "y": 493
             }
         }
     },
-    "粘贴异常处理（调入库存组织）": {
-        "recognition": "OCR",
-        "roi": [
-            373,
-            191,
-            431,
-            279
-        ],
-        "expected": [
-            "粘贴异常"
-        ],
-        "action": "Click",
+    "粘贴调出库存组织": {
+        "action": "Custom",
+        "custom_action": "PasteOrderField",
+        "custom_action_param": {
+            "field": "source_org",
+            "select_all": true
+        },
+        "post_delay": 500,
         "next": [
-            "异常点击确定（调入库存组织）"
+            "粘贴异常处理（调出库存组织）",
+            "回车确认（调出库存组织）"
         ],
         "$__mpe_code": {
             "position": {
-                "x": 3852,
-                "y": 331
+                "x": 3212,
+                "y": 75
             }
         }
     },
-    "异常点击确定（调入库存组织）": {
-        "recognition": "OCR",
-        "expected": [
-            "确定"
-        ],
-        "action": "Click",
+    "读取Excel数据": {
+        "action": "Custom",
+        "custom_action": "ReadTransferExcel",
+        "custom_action_param": {
+            "path": "E:/测试/直接调拨单测试2.xlsx"
+        },
         "next": [
-            "[JumpBack]粘贴调入库存组织"
+            "点击主菜单"
         ],
         "$__mpe_code": {
             "position": {
-                "x": 4172,
-                "y": 309
+                "x": 332,
+                "y": 77
+            }
+        }
+    },
+    "读取单据": {
+        "pre_delay": 0,
+        "action": "Custom",
+        "custom_action": "NextOrder",
+        "custom_action_param": "",
+        "post_delay": 0,
+        "next": [
+            "点击调出库存组织"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 2572,
+                "y": 69
+            }
+        }
+    },
+    "调拨类型输入": {
+        "pre_delay": 0,
+        "action": "Custom",
+        "custom_action": "PasteOrderField",
+        "custom_action_param": {
+            "field": "transfer_type",
+            "select_all": true
+        },
+        "post_delay": 0,
+        "next": [
+            "回车确认（调拨类型）"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 5452,
+                "y": 450
+            }
+        }
+    },
+    "输入备注": {
+        "pre_delay": 0,
+        "action": "Custom",
+        "custom_action": "PasteOrderField",
+        "custom_action_param": {
+            "field": "remark"
+        },
+        "post_delay": 0,
+        "$__mpe_code": {
+            "position": {
+                "x": 6412,
+                "y": 468
+            }
+        }
+    },
+    "搜索直接调拨单": {
+        "pre_delay": 500,
+        "action": "Custom",
+        "custom_action": "PasteText",
+        "custom_action_param": {
+            "text": "直接调拨单列表"
+        },
+        "post_delay": 0,
+        "next": [
+            "回车确认（搜索）"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 1452,
+                "y": 42
             }
         }
     }
