@@ -3,29 +3,17 @@
         "$__mpe_code": {
             "prefix": "",
             "coordinateMode": "absolute-v1",
-            "lastSyncTime": 1787900202621,
+            "lastSyncTime": 1788232001732,
             "isModifiedExternally": false,
             "isDeleted": false,
             "filePath": "E:\\MAAFWStudy\\MAAXA\\assets\\resource\\pipeline\\直接调拨单.json",
             "savedViewport": {
-                "x": -2790,
-                "y": -344,
-                "zoom": 0.53
+                "x": -3891,
+                "y": 36,
+                "zoom": 0.61
             },
             "filename": "直接调拨单.json",
-            "version": "v1.9.1"
-        }
-    },
-    "$__mpe_sticker_便签_直接调拨单.json": {
-        "$__mpe_code": {
-            "position": {
-                "x": 12,
-                "y": 12
-            },
-            "content": "粘贴异常还需要target_offset，等待下次弹出识别。",
-            "color": "yellow",
-            "width": 200,
-            "height": 160
+            "version": "v1.9.2"
         }
     },
     "上拉置顶(ctrl+home)": {
@@ -36,8 +24,41 @@
         ],
         "$__mpe_code": {
             "position": {
+                "x": 4492,
+                "y": 529
+            }
+        }
+    },
+    "右移至调入仓位": {
+        "max_hit": 100,
+        "recognition": "OCR",
+        "roi": [
+            20,
+            555,
+            1160,
+            147
+        ],
+        "expected": [
+            "调入仓位"
+        ],
+        "inverse": true,
+        "action": "ClickKey",
+        "key": [
+            39
+        ],
+        "repeat": 3,
+        "post_wait_freezes": 500,
+        "rate_limit": 300,
+        "next": [
+            "点击调出仓库列"
+        ],
+        "on_error": [
+            "右移至调入仓位"
+        ],
+        "$__mpe_code": {
+            "position": {
                 "x": 6092,
-                "y": 1068
+                "y": 391
             }
         }
     },
@@ -55,8 +76,8 @@
         ],
         "$__mpe_code": {
             "position": {
-                "x": 652,
-                "y": 321
+                "x": 332,
+                "y": 1122
             }
         }
     },
@@ -70,8 +91,45 @@
         ],
         "$__mpe_code": {
             "position": {
-                "x": 4492,
-                "y": 570
+                "x": 2892,
+                "y": 1014
+            }
+        }
+    },
+    "回车确认（调出仓位）": {
+        "pre_delay": 1000,
+        "action": "ClickKey",
+        "key": [
+            13
+        ],
+        "repeat": 3,
+        "repeat_delay": 3000,
+        "next": [
+            "点击批量填充（调出仓位）"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 8012,
+                "y": 211
+            }
+        }
+    },
+    "回车确认（调出仓库）": {
+        "action": "ClickKey",
+        "key": [
+            13
+        ],
+        "post_wait_freezes": 800,
+        "next": [
+            "确认调出仓库已输入"
+        ],
+        "on_error": [
+            "点击调出仓库列"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 6092,
+                "y": 46
             }
         }
     },
@@ -86,8 +144,8 @@
         ],
         "$__mpe_code": {
             "position": {
-                "x": 3212,
-                "y": 495
+                "x": 1612,
+                "y": 1005
             }
         }
     },
@@ -103,8 +161,8 @@
         ],
         "$__mpe_code": {
             "position": {
-                "x": 2252,
-                "y": 253
+                "x": 652,
+                "y": 763
             }
         }
     },
@@ -122,8 +180,8 @@
         ],
         "$__mpe_code": {
             "position": {
-                "x": 6412,
-                "y": 1006
+                "x": 4812,
+                "y": 467
             }
         }
     },
@@ -138,8 +196,8 @@
         ],
         "$__mpe_code": {
             "position": {
-                "x": 4812,
-                "y": 192
+                "x": 2252,
+                "y": 1301
             }
         }
     },
@@ -155,7 +213,7 @@
         "$__mpe_code": {
             "position": {
                 "x": 12,
-                "y": 659
+                "y": 1935
             }
         }
     },
@@ -180,10 +238,13 @@
         "next": [
             "回车确认（搜索）"
         ],
+        "on_error": [
+            "点击搜索"
+        ],
         "$__mpe_code": {
             "position": {
-                "x": 1292,
-                "y": 612
+                "x": 652,
+                "y": 1058
             }
         }
     },
@@ -203,7 +264,7 @@
         "$__mpe_code": {
             "position": {
                 "x": 652,
-                "y": 656
+                "y": 1932
             }
         }
     },
@@ -221,14 +282,17 @@
         "action": "Click",
         "target_offset": [
             12,
-            6,
+            11,
             -24,
-            -14
+            -18
+        ],
+        "next": [
+            "确认数量已粘贴"
         ],
         "$__mpe_code": {
             "position": {
-                "x": 7052,
-                "y": 1053
+                "x": 5452,
+                "y": 496
             }
         }
     },
@@ -255,8 +319,51 @@
         ],
         "$__mpe_code": {
             "position": {
-                "x": 4812,
-                "y": 544
+                "x": 3212,
+                "y": 988
+            }
+        }
+    },
+    "点击批量填充（调出仓位）": {
+        "recognition": "OCR",
+        "roi": [
+            140,
+            536,
+            63,
+            24
+        ],
+        "expected": [
+            "批量填充"
+        ],
+        "action": "Click",
+        "post_delay": 700,
+        "$__mpe_code": {
+            "position": {
+                "x": 8332,
+                "y": 237
+            }
+        }
+    },
+    "点击批量填充（调出仓库）": {
+        "recognition": "OCR",
+        "roi": [
+            140,
+            536,
+            63,
+            24
+        ],
+        "expected": [
+            "批量填充"
+        ],
+        "action": "Click",
+        "post_delay": 700,
+        "next": [
+            "点击调出仓位列"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 6732,
+                "y": 700
             }
         }
     },
@@ -284,7 +391,7 @@
         "$__mpe_code": {
             "position": {
                 "x": 972,
-                "y": 603
+                "y": 1171
             }
         }
     },
@@ -308,10 +415,13 @@
         "next": [
             "读取单据"
         ],
+        "on_error": [
+            "点击新增"
+        ],
         "$__mpe_code": {
             "position": {
-                "x": 972,
-                "y": 236
+                "x": 652,
+                "y": 1531
             }
         }
     },
@@ -339,8 +449,8 @@
         ],
         "$__mpe_code": {
             "position": {
-                "x": 5452,
-                "y": 514
+                "x": 3852,
+                "y": 958
             }
         }
     },
@@ -367,8 +477,33 @@
         ],
         "$__mpe_code": {
             "position": {
-                "x": 5772,
-                "y": 604
+                "x": 4172,
+                "y": 929
+            }
+        }
+    },
+    "点击维度数据录入符号": {
+        "recognition": "TemplateMatch",
+        "roi": [
+            594,
+            562,
+            577,
+            110
+        ],
+        "template": [
+            "维度数据录入符号.png"
+        ],
+        "action": "Click",
+        "next": [
+            "确认维度数据录入已弹出"
+        ],
+        "on_error": [
+            "点击调出仓位列"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 6732,
+                "y": 387
             }
         }
     },
@@ -395,8 +530,68 @@
         ],
         "$__mpe_code": {
             "position": {
-                "x": 3852,
-                "y": 474
+                "x": 2252,
+                "y": 984
+            }
+        }
+    },
+    "点击调出仓位列": {
+        "recognition": "OCR",
+        "roi": [
+            21,
+            532,
+            1150,
+            163
+        ],
+        "expected": [
+            "调出仓位"
+        ],
+        "action": "Click",
+        "target_offset": [
+            5,
+            32,
+            -15,
+            -7
+        ],
+        "timeout": 10000,
+        "next": [
+            "点击维度数据录入符号"
+        ],
+        "on_error": [
+            "点击调出仓位列"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 7052,
+                "y": 599
+            }
+        }
+    },
+    "点击调出仓库列": {
+        "recognition": "OCR",
+        "roi": [
+            21,
+            532,
+            1150,
+            163
+        ],
+        "expected": [
+            "调出仓库"
+        ],
+        "action": "Click",
+        "target_offset": [
+            5,
+            32,
+            -15,
+            -7
+        ],
+        "next": [
+            "粘贴调出仓库"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 6412,
+                "y": 419
             }
         }
     },
@@ -421,8 +616,8 @@
         ],
         "$__mpe_code": {
             "position": {
-                "x": 2572,
-                "y": 266
+                "x": 972,
+                "y": 776
             }
         }
     },
@@ -450,8 +645,8 @@
         ],
         "$__mpe_code": {
             "position": {
-                "x": 6732,
-                "y": 1019
+                "x": 5132,
+                "y": 480
             }
         }
     },
@@ -476,10 +671,13 @@
         "next": [
             "调拨类型输入"
         ],
+        "on_error": [
+            "[JumpBack]点击新增"
+        ],
         "$__mpe_code": {
             "position": {
-                "x": 1612,
-                "y": 266
+                "x": 12,
+                "y": 1394
             }
         }
     },
@@ -494,8 +692,76 @@
         ],
         "$__mpe_code": {
             "position": {
-                "x": 3532,
-                "y": 445
+                "x": 1932,
+                "y": 955
+            }
+        }
+    },
+    "确认数量已粘贴": {
+        "recognition": "OCR",
+        "roi": [
+            602,
+            598,
+            57,
+            98
+        ],
+        "expected": [
+            "^0(\\.0+)?$"
+        ],
+        "inverse": true,
+        "next": [
+            "右移至调入仓位"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 5772,
+                "y": 483
+            }
+        }
+    },
+    "确认维度数据录入已弹出": {
+        "recognition": "OCR",
+        "roi": [
+            262,
+            125,
+            654,
+            402
+        ],
+        "expected": [
+            "维度数据录入"
+        ],
+        "post_delay": 2000,
+        "next": [
+            "粘贴调出仓位"
+        ],
+        "on_error": [
+            "[JumpBack]点击维度数据录入符号"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 7052,
+                "y": 208
+            }
+        }
+    },
+    "确认调出仓库已输入": {
+        "recognition": "OCR",
+        "roi": [
+            696,
+            597,
+            96,
+            24
+        ],
+        "expected": [
+            "仓"
+        ],
+        "next": [
+            "点击批量填充（调出仓库）"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 6412,
+                "y": 736
             }
         }
     },
@@ -516,8 +782,8 @@
         ],
         "$__mpe_code": {
             "position": {
-                "x": 4492,
-                "y": 267
+                "x": 2892,
+                "y": 1279
             }
         }
     },
@@ -529,8 +795,8 @@
         "action": "Click",
         "$__mpe_code": {
             "position": {
-                "x": 3212,
-                "y": 259
+                "x": 1612,
+                "y": 769
             }
         }
     },
@@ -551,8 +817,8 @@
         ],
         "$__mpe_code": {
             "position": {
-                "x": 5452,
-                "y": 891
+                "x": 3852,
+                "y": 527
             }
         }
     },
@@ -570,8 +836,46 @@
         ],
         "$__mpe_code": {
             "position": {
-                "x": 4172,
-                "y": 451
+                "x": 2572,
+                "y": 1013
+            }
+        }
+    },
+    "粘贴调出仓位": {
+        "pre_delay": 0,
+        "action": "Custom",
+        "custom_action": "PasteOrderColumn",
+        "custom_action_param": {
+            "column": "source_locations",
+            "first_only": true
+        },
+        "post_delay": 2000,
+        "next": [
+            "选中仓位第一项"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 7372,
+                "y": 211
+            }
+        }
+    },
+    "粘贴调出仓库": {
+        "pre_delay": 0,
+        "action": "Custom",
+        "custom_action": "PasteOrderColumn",
+        "custom_action_param": {
+            "column": "source_warehouses",
+            "first_only": true
+        },
+        "post_delay": 5000,
+        "next": [
+            "回车确认（调出仓库）"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 6732,
+                "y": 12
             }
         }
     },
@@ -589,8 +893,8 @@
         ],
         "$__mpe_code": {
             "position": {
-                "x": 2892,
-                "y": 243
+                "x": 1292,
+                "y": 753
             }
         }
     },
@@ -610,8 +914,8 @@
         ],
         "$__mpe_code": {
             "position": {
-                "x": 5772,
-                "y": 1043
+                "x": 4172,
+                "y": 504
             }
         }
     },
@@ -627,7 +931,7 @@
         "$__mpe_code": {
             "position": {
                 "x": 332,
-                "y": 659
+                "y": 1935
             }
         }
     },
@@ -640,10 +944,13 @@
         "next": [
             "点击调拨类型"
         ],
+        "on_error": [
+            "[JumpBack]点击新增"
+        ],
         "$__mpe_code": {
             "position": {
-                "x": 1292,
-                "y": 237
+                "x": 332,
+                "y": 1536
             }
         }
     },
@@ -661,8 +968,8 @@
         ],
         "$__mpe_code": {
             "position": {
-                "x": 1932,
-                "y": 237
+                "x": 332,
+                "y": 747
             }
         }
     },
@@ -679,8 +986,23 @@
         ],
         "$__mpe_code": {
             "position": {
-                "x": 5132,
-                "y": 515
+                "x": 3532,
+                "y": 959
+            }
+        }
+    },
+    "选中仓位第一项": {
+        "action": "ClickKey",
+        "key": [
+            40
+        ],
+        "next": [
+            "回车确认（调出仓位）"
+        ],
+        "$__mpe_code": {
+            "position": {
+                "x": 7692,
+                "y": 273
             }
         }
     }

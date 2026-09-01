@@ -8,6 +8,7 @@
 #  PasteOrderColumn   param: {"column": "material_codes", "method": "ctrl_v"}  当前单指定列拼成多行文本 → 剪贴板 → 粘贴
 #                     前置pipeline节点必须已把光标点在目标列第一个单元格，金蝶收到多行粘贴会自动扩展行
 #                     method可选: "ctrl_v"(默认)Ctrl+V粘贴 / "clipboard_only"只复制到剪贴板不粘贴（配合pipeline右键粘贴）
+#                     first_only为true时只取第一行（仓库仓位这类整单一致的列，粘完再点金蝶的批量填充铺开）
 #column可选值：material_codes物料编码 / quantities数量 / source_warehouses调出仓库 / source_locations调出仓位
 #             target_warehouses调入仓库 / target_locations调入仓位
 #  PasteText          param: {"text": "直接调拨单列表"}  固定文本 → 剪贴板 → Ctrl+A全选后Ctrl+V覆盖粘贴（搜索框用）
@@ -204,12 +205,12 @@ class PasteOrderColumn(CustomAction):
 
         order = _orders[_current]
         lines = [getattr(item, field) for item in order.items]  #取当前单这一列的所有行
+        if param.get("first_only"):  #整单四个仓库仓位列的值都一样，只粘第一行，剩下的交给金蝶的批量填充
+            lines = lines[:1]
         if not any(lines):
             print(f"[PasteOrderColumn] {column}整列为空，跳过粘贴")
             return True  #此列无数据，无需粘贴
-        pyperclip.copy("\r\n".join(lines))  
-        #用CRLF拼接，和Excel复制出来的格式一致（金蝶块粘贴只认CRLF切行）
-
+        pyperclip.copy("\r\n".join(lines))  #用CRLF拼接，和Excel复制出来的格式一致（金蝶块粘贴只认CRLF切行）
 
         method = param.get("method", "ctrl_v")
         if method == "clipboard_only":
