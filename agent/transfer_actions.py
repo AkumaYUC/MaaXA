@@ -9,11 +9,23 @@
 #                     前置pipeline节点必须已把光标点在目标列第一个单元格，金蝶收到多行粘贴会自动扩展行
 #                     method可选: "ctrl_v"(默认)Ctrl+V粘贴 / "clipboard_only"只复制到剪贴板不粘贴（配合pipeline右键粘贴）
 #                     first_only为true时只取第一行（仓库仓位这类整单一致的列，粘完再点金蝶的批量填充铺开）
+#                     focus_window填窗口标题时，粘贴前先把该窗口置前台（维度数据录入这类独立弹窗必须加，
+#                     框架每次抓图都会把金蝶主窗口拉回前台，焦点得在发Ctrl+V前抢回来，否则粘到主窗口表格里）
 #column可选值：material_codes物料编码 / quantities数量 / source_warehouses调出仓库 / source_locations调出仓位
 #             target_warehouses调入仓库 / target_locations调入仓位
 #  PasteText          param: {"text": "直接调拨单列表"}  固定文本 → 剪贴板 → Ctrl+A全选后Ctrl+V覆盖粘贴（搜索框用）
 #  PressCtrlHome      param: 无  发送Ctrl+Home，把表格光标移回首行首列（物料行数多时用来置顶）
 #                     只发按键不点鼠标，焦点必须已经在表格里，前一个节点不能是点按钮之类会抢焦点的动作
+#  PopupKeys          param: {"window": "维度数据录入", "key": [40, 13], "key_delay": 1500}  抢弹窗焦点后依次发送key里的按键
+#                     key是虚拟键码数组（13回车 / 27ESC / 9Tab / 38↑ / 40↓），逐个按下再松开，不是组合键
+#                     key_delay是每个按键之后等待的毫秒数，默认150；下拉列表要等后台读数据就填1500~2000
+#                     字段名跟pipeline的ClickKey保持一致（都叫key、都收数组），别写成keys
+#                     window要和弹窗标题栏文字精确一致（内部走FindWindowW精确匹配，不是正则）
+#                     金蝶的查找字段常要两个回车（第一个提交字段值、第二个才按默认按钮），这时填 "key": [13, 13]
+#                     弹窗内选下拉项用 ↓ + 回车 比鼠标双击稳得多（Click在识别框内随机取点，双击经常判不出来）
+#                     独立顶层弹窗必须用这个动作发按键：框架每次抓图都会把金蝶主窗口拉回前台，
+#                     抢焦点和发按键之间隔一个pipeline节点焦点就丢了，键会打到主窗口上去
+#                     找不到窗口返回False（不乱发按键），让pipeline走on_error重来
 #循环结构参考：读取Excel → NextOrder → 点新增 → 填单/保存/提交 → NextOrder（还有单回到填单，没有了on_error收尾）
 
 import ctypes
@@ -51,11 +63,12 @@ _ORDER_FIELDS = {
 }
 
 
-#Ctrl+A / Ctrl+V / Ctrl+Home用到的虚拟键码（_ctrl_a、_ctrl_v、_ctrl_home发按键用）
+#Ctrl+A / Ctrl+V / Ctrl+Home / 置前台用到的虚拟键码（_ctrl_a、_ctrl_v、_ctrl_home、_focus_window发按键用）
 _VK_CONTROL = 0x11
 _VK_A = 0x41  #字母A的虚拟键码
 _VK_V = 0x56  #字母V的虚拟键码
 _VK_HOME = 0x24  #Home键的虚拟键码
+_VK_MENU = 0x12  #Alt键的虚拟键码（置前台前按一下，绕开系统的前台锁）
 _KEYEVENTF_KEYUP = 0x0002  #按键释放标志
 
 
@@ -129,6 +142,42 @@ def _ctrl_home():
     user32.keybd_event(_VK_HOME, 0, _KEYEVENTF_KEYUP, 0)  #松开Home
     user32.keybd_event(_VK_CONTROL, 0, _KEYEVENTF_KEYUP, 0)  #松开Ctrl
     time.sleep(0.1)  #给金蝶一点响应时间
+
+
+def _focus_window(title):
+    #按标题把窗口拉到前台。框架每次ScreenDC抓图都会ensure foreground把金蝶主窗口拉回前台，
+    #「维度数据录入」这类独立顶层弹窗的焦点会被顺手抢走，所以发按键前必须自己抢回来
+    #置顶必须和发按键在同一个动作里完成，中间插任何pipeline节点都会再抓一次图、焦点又丢
+    user32 = ctypes.windll.user32
+    hwnd = user32.FindWindowW(None, title)  #按窗口标题精确找，找不到返回0
+    if not hwnd:
+        return False  #弹窗没开，或者标题和传进来的不一致
+    user32.keybd_event(_VK_MENU, 0, 0, 0)  #按下Alt，绕开系统前台锁（同my_action的Win32BringToFront）
+    ok = user32.SetForegroundWindow(hwnd)  #把弹窗置前台
+    user32.keybd_event(_VK_MENU, 0, _KEYEVENTF_KEYUP, 0)  #松开Alt
+    time.sleep(0.1)  #给窗口切换一点时间
+    return bool(ok)  #置顶成功与否
+
+
+def _activate_window(title):
+    #把弹窗激活，但全程不碰Alt。_focus_window靠按一下Alt绕系统前台锁，而Alt单击会让金蝶进菜单加速键模式，
+    #紧跟的Enter就被当成「激活菜单项」——实测会弹出一个带「关闭」按钮的窗口，而目标弹窗根本没关
+    #所以发按键的路径必须用这个：已经在前台就什么都不做，需要切换时借目标线程的输入队列绕前台锁
+    user32 = ctypes.windll.user32
+    hwnd = user32.FindWindowW(None, title)  #按窗口标题精确找，找不到返回0
+    if not hwnd:
+        return False  #弹窗没开，或者标题和传进来的不一致
+    if user32.GetForegroundWindow() == hwnd:
+        return True  #已经是前台窗口，多余的置顶动作只会引入副作用
+
+    target_tid = user32.GetWindowThreadProcessId(hwnd, None)  #弹窗所属的线程
+    our_tid = ctypes.windll.kernel32.GetCurrentThreadId()
+    user32.AttachThreadInput(our_tid, target_tid, True)  #挂到目标线程的输入队列上，SetForegroundWindow才不会被拒
+    user32.BringWindowToTop(hwnd)
+    ok = user32.SetForegroundWindow(hwnd)
+    user32.AttachThreadInput(our_tid, target_tid, False)  #用完立刻解绑，挂着不放会连带卡住输入
+    time.sleep(0.1)  #给窗口切换一点时间
+    return bool(ok)  #激活成功与否
 
 
 @AgentServer.custom_action("ReadTransferExcel")  #读取调拨单Excel，解析成单据队列
@@ -217,6 +266,11 @@ class PasteOrderColumn(CustomAction):
             print(f"[PasteOrderColumn] 已复制{column}到剪贴板: {len(lines)}行（等待右键粘贴）")
             return True  #只复制不粘贴，pipeline侧负责右键+点粘贴
 
+        focus_window = param.get("focus_window")  #独立弹窗要先把焦点抢回来，否则Ctrl+V会打到主窗口的表格上
+        if focus_window and not _focus_window(focus_window):
+            print(f"[PasteOrderColumn] 没找到窗口「{focus_window}」，跳过粘贴")
+            return False  #弹窗没开就别乱粘，返回False让pipeline走on_error重来
+
         _ctrl_v()
         print(f"[PasteOrderColumn] 已粘贴{column}: {len(lines)}行")
         return True  #粘贴成功
@@ -234,3 +288,34 @@ class PressCtrlHome(CustomAction):
         _ctrl_home()
         print("[PressCtrlHome] 已发送Ctrl+Home")
         return True  #按键已发出，是否真的置顶交给pipeline的校验节点判断
+
+
+@AgentServer.custom_action("PopupKeys")  #把独立弹窗抢到前台后发按键（弹窗内回车确定、ESC取消）
+class PopupKeys(CustomAction):
+
+    def run(
+        self,
+        context: Context,
+        argv: CustomAction.RunArg,
+    ) -> bool:
+
+        param = json.loads(argv.custom_action_param or "{}")
+        title = param.get("window", "")
+        keys = param.get("key") or []  #虚拟键码数组，逐个按下再松开
+        if not title or not keys:
+            print(f"[PopupKeys] 缺少window或key参数: {param!r}")
+            return False  #参数不全，不乱发按键
+
+        if not _activate_window(title):
+            print(f"[PopupKeys] 没找到窗口「{title}」或激活失败")
+            return False  #弹窗没开就别发按键，让pipeline走on_error重来
+
+        user32 = ctypes.windll.user32
+        key_delay = param.get("key_delay", 150)  #每个按键之后等待的毫秒数
+        for vk in keys:
+            user32.keybd_event(vk, 0, 0, 0)  #按下
+            time.sleep(0.05)
+            user32.keybd_event(vk, 0, _KEYEVENTF_KEYUP, 0)  #松开
+            time.sleep(key_delay / 1000)  #给金蝶响应时间，也把连续的两个键隔开
+        print(f"[PopupKeys] 已向「{title}」发送按键: {keys}，间隔{key_delay}ms")
+        return True  #按键已发出，弹窗有没有关掉交给pipeline的校验节点判断
