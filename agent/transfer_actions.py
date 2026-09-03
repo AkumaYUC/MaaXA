@@ -26,6 +26,12 @@
 #                     独立顶层弹窗必须用这个动作发按键：框架每次抓图都会把金蝶主窗口拉回前台，
 #                     抢焦点和发按键之间隔一个pipeline节点焦点就丢了，键会打到主窗口上去
 #                     找不到窗口返回False（不乱发按键），让pipeline走on_error重来
+#自定义识别（节点recognition填Custom、custom_recognition填名字；和上面的动作是两个互不相干的槽）：
+#  OrderRowCount      param: {"equal": 1}  当前单的物料行数等于equal时命中，否则不命中
+#                     行数直接读agent里的队列，跟界面无关，所以命中与否是瞬间确定的，
+#                     不像弹窗判据那样有"还没渲染出来就被兜底候选抢跑"的时序竞态，
+#                     可以放心和兜底候选写在同一个next列表里（本命中在前、兜底在后）
+#                     命中时返回占位框(0,0,1,1)，只配ClickKey这类不需要目标的动作，别配Click+target
 #循环结构参考：读取Excel → NextOrder → 点新增 → 填单/保存/提交 → NextOrder（还有单回到填单，没有了on_error收尾）
 
 import ctypes
@@ -37,6 +43,7 @@ import pyperclip
 from maa.agent.agent_server import AgentServer
 from maa.context import Context
 from maa.custom_action import CustomAction
+from maa.custom_recognition import CustomRecognition
 
 import excel_reader
 
@@ -319,3 +326,31 @@ class PopupKeys(CustomAction):
             time.sleep(key_delay / 1000)  #给金蝶响应时间，也把连续的两个键隔开
         print(f"[PopupKeys] 已向「{title}」发送按键: {keys}，间隔{key_delay}ms")
         return True  #按键已发出，弹窗有没有关掉交给pipeline的校验节点判断
+
+
+@AgentServer.custom_recognition("OrderRowCount")  #按当前单的物料行数分流（单物料/多物料走不同分支）
+class OrderRowCount(CustomRecognition):
+
+    def analyze(
+        self,
+        context: Context,
+        argv: CustomRecognition.AnalyzeArg,
+    ):
+
+        if not 0 <= _current < len(_orders):
+            print("[OrderRowCount] 没有当前单据（先执行ReadTransferExcel和NextOrder）")
+            return None  #队列还没就绪，不命中
+
+        param = json.loads(argv.custom_recognition_param or "{}")
+        want = param.get("equal")
+        if want is None:
+            print(f"[OrderRowCount] 缺少equal参数: {param!r}")
+            return None  #参数不全，不命中
+
+        rows = len(_orders[_current].items)
+        if rows != want:
+            print(f"[OrderRowCount] 当前单{rows}行，不等于{want}，不命中")
+            return None  #行数不匹配，让pipeline接着评估next列表里的下一个候选
+
+        print(f"[OrderRowCount] 当前单{rows}行，命中")
+        return CustomRecognition.AnalyzeResult(box=(0, 0, 1, 1), detail={"rows": rows})  #占位框，动作是ClickKey不需要真目标
