@@ -4,24 +4,19 @@
     // 文档：https://maafw.xyz/docs/3.3-ProjectInterfaceV2
     // 示例：https://github.com/MaaXYZ/MaaFramework/blob/main/sample/interface.json
     "interface_version": 2,
-    "name": "MaaXXX",
-    "description": "这是一个使用 MaaFramework 创建的新项目。",
-    "contact": "QQ群: 123456789",
+    "name": "MaaXA",
+    "description": "这是一个使用 MaaFramework 创建的项目。",
+    "contact": "AkumaYUC#0001",
     "license": "MIT",
-    "welcome": "首次使用！欢迎使用 MAA!",
+    "welcome": "欢迎使用 MAAXA!目前程序还在开发阶段，可能会有各种各样的bug或者需要优化的流程，如有问题请联系开发者。",
     // 填写项目地址和版本号可实现自动更新功能
-    "github": "https://github.com/MaaXYZ/MaaPracticeBoilerplate",
+    "github": "https://github.com/AkumaYUC/MAAXA",
     "version": "1.0.0",
     // Mirror酱为第三方分发服务，新项目默认关闭
     // 若有需要请联系 Mirror酱 开通，直接自行开启是无法使用的
-    // "mirrorchyan_rid": "MaaXXX",
+    // "mirrorchyan_rid": "MaaXA",
     // "mirrorchyan_multiplatform": true,
     "controller": [
-        {
-            "name": "安卓端",
-            "type": "Adb",
-            "display_short_side": 720 // 默认缩放分辨率的短边长度
-        },
         {
             "name": "桌面端",
             "type": "Win32",
@@ -42,68 +37,71 @@
             "path": [
                 "./resource"
             ]
-        },
-        {
-            "name": "B 服",
-            "path": [
-                "./resource"
-                // "./resource_bilibili"
-            ]
         }
     ],
-    // 可选的 agent 示例
-     "agent": {
-         "child_exec": "E:/MAAFWStudy/MAAXA/.venv/Scripts/python.exe",
-         "child_args": [
-             "E:/MAAFWStudy/MAAXA/agent/main.py"
-         ]
-     },
+
+    // Windows-only：在 Maa Controller 创建前确保金蝶云已启动。
+    // 脚本会复用已有的金蝶窗口或进程，不会重复启动；不要同时启用 Avalonia 的“启动游戏”。
+    "pretask": {
+        "name": "启动金蝶云",
+        "label": "启动金蝶云",
+        "description": "已有金蝶云窗口或进程时跳过启动；没有时自动启动并等待窗口就绪。",
+        "controller": [
+            "桌面端"
+        ],
+        "exec": "C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
+        "args": [
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            "../../agent/start_kingdee.ps1",
+            "-Exe",
+            "C:/Program Files (x86)/Kingdee/K3Cloud/DeskClient/K3CloudClient/Kingdee.BOS.XPF.App.exe",
+            "-WindowRegex",
+            "金蝶|云星空|Kingdee.BOS.XPF",
+            "-WaitSeconds",
+            "60"
+        ]
+    },
+
+    // Maa AgentServer：只负责已连接 Controller 后的自定义识别和动作。
+    "agent": {
+        "child_exec": "E:/MAAFWStudy/MAAXA/.venv/Scripts/python.exe",
+        "child_args": [
+            "-u",
+            "E:/MAAFWStudy/MAAXA/agent/main.py"
+        ]
+    },
     "task": [
         {
-            "name": "普通任务",
-            "entry": "MyTask1"
-        },
-        {
-            "name": "选项任务",
-            "entry": "MyTask2",
+            "name": "直接调拨单",
+            "entry": "拉回金蝶云",
             "option": [
-                "任务选项1"
+                "单据文件夹"
             ]
-        },
-        {
-            "name": "参数任务",
-            "entry": "MyTask3",
-            "option": [
-                "任务选项1"
-            ],
-            "pipeline_override": {}
-        },
-        {
-            "name": "带Custom的任务",
-            "entry": "MyTask4"
         }
     ],
     "option": {
-        "任务选项1": {
-            "type": "select",
-            "cases": [
+        "单据文件夹": {
+            "type": "input",
+            "label": "单据文件夹",
+            "description": "用来存放Excel调拨单的文件夹，注意格式为：物料编码、数量、调出仓库、调出仓位、调入仓库、调入仓位、备注。",
+            "inputs": [
                 {
-                    "name": "文本1",
-                    "pipeline_override": {
-                        "OcrTask": {
-                            "text": "文本1"
-                        }
-                    }
-                },
-                {
-                    "name": "文本2",
-                    "pipeline_override": {
-                        "OcrTask": {
-                            "text": "文本2"
-                        }
-                    }
+                    "name": "单据目录",
+                    "label": "单据目录",
+                    "description": "只填目录，不要填文件名。目录里一次只放一个 Excel，放多个会报错不处理。",
+                    "default": "E:/测试/待处理",
+                    "pipeline_type": "string"
                 }
-            ]
+            ],
+            "pipeline_override": {
+                "读取Excel数据": {
+                    "custom_action_param": { "inbox": "{单据目录}" }
+                }
+            }
         }
     }
 }

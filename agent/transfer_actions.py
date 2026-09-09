@@ -1,6 +1,10 @@
 #调拨单填写自定义动作
 #pipeline侧接口约定（节点action都填Custom，custom_action填下面的动作名）：
-#  ReadTransferExcel  param: {"path": "D:/xxx/调拨单.xlsx"}  读Excel建单据队列，放流程最开头
+#  ReadTransferExcel  param: {"path": "D:/xxx/调拨单.xlsx"} 或 {"inbox": "D:/xxx/待处理"}  读Excel建单据队列，放流程最开头
+#                     path直接指定文件（调试固定单据用）；inbox是收件箱目录，由GUI的option传进来，日常走这条
+#                     inbox模式取目录里唯一的xlsx/xlsm，解析成功后挪进该目录下的「已处理」子目录并加时间戳，
+#                     否则下次点开始会把同一批单据再录一遍；目录里有多个Excel时报错不自动挑（挑错就是往ERP录错单）
+#                     ~$开头的Excel锁文件（文件正被打开时生成）会跳过；两个参数都空则直接返回False
 #  NextOrder          param: 无  取下一张单（第一张也靠它取）；全部填完返回False触发on_error，可接收尾节点
 #  PasteOrderField    param: {"field": "source_org", "select_all": true}  当前单单头字段 → 剪贴板 → Ctrl+V粘贴到焦点输入框
 #                     select_all为true时先Ctrl+A全选，粘贴直接覆盖输入框里原有的文字
@@ -37,6 +41,7 @@
 import ctypes
 import json
 import time
+from pathlib import Path
 
 import pyperclip
 
@@ -187,6 +192,33 @@ def _activate_window(title):
     return bool(ok)  #激活成功与否
 
 
+def _pick_from_inbox(inbox):
+    #从收件箱目录取本次要处理的调拨单，返回(路径, 失败原因)；成功时失败原因为空串
+    folder = Path(inbox)
+    if not folder.is_dir():
+        return "", f"收件箱目录不存在: {inbox}"
+
+    #~$开头的是Excel打开文件时生成的锁文件，不是真单据，必须跳过否则会被当成第二个文件
+    files = [f for f in folder.iterdir()
+             if f.is_file() and f.suffix.lower() in (".xlsx", ".xlsm") and not f.name.startswith("~$")]
+    if not files:
+        return "", f"收件箱是空的，请把调拨单拖进 {inbox} 再点开始"
+    if len(files) > 1:
+        names = "、".join(f.name for f in files)
+        return "", f"收件箱里有{len(files)}个Excel，一次只能放一个（自动挑会往ERP录错单）: {names}"
+    return str(files[0]), ""
+
+
+def _archive_order_file(path):
+    #读完立刻把单据挪进「已处理」子目录并加时间戳，否则下次点开始会把同一批单据再录一遍
+    src = Path(path)
+    done = src.parent / "已处理"
+    done.mkdir(exist_ok=True)
+    dst = done / f"{time.strftime('%Y%m%d-%H%M%S')}_{src.name}"
+    src.rename(dst)
+    return dst
+
+
 @AgentServer.custom_action("ReadTransferExcel")  #读取调拨单Excel，解析成单据队列
 class ReadTransferExcel(CustomAction):
 
@@ -198,10 +230,20 @@ class ReadTransferExcel(CustomAction):
 
         global _orders, _current
 
-        path = json.loads(argv.custom_action_param or "{}").get("path", "")  #拉取Excel路径参数
+        param = json.loads(argv.custom_action_param or "{}")  #拉取参数
+        path = param.get("path", "")  #直接指定文件，调试固定单据时用
+        inbox = param.get("inbox", "")  #收件箱目录，由GUI的option传进来
+        from_inbox = False
+
         if not path:
-            print("[ReadTransferExcel] 缺少path参数")
-            return False  #没配置path，直接返回False
+            if not inbox:
+                print("[ReadTransferExcel] path和inbox都没给，不知道该读哪个文件")
+                return False  #两个参数都是空的
+            path, why = _pick_from_inbox(inbox)
+            if not path:
+                print(f"[ReadTransferExcel] {why}")
+                return False  #目录不存在 / 空 / 放了多个文件
+            from_inbox = True
 
         try:
             _orders = excel_reader.read_orders(path)  #读文件并校验，格式不对会抛ExcelFormatError
@@ -215,6 +257,8 @@ class ReadTransferExcel(CustomAction):
         _current = -1  #重置队列，第一张单由NextOrder来取
         total_rows = sum(len(o.items) for o in _orders)
         print(f"[ReadTransferExcel] 解析成功: {len(_orders)}张单据 / 共{total_rows}行物料")
+        if from_inbox:
+            print(f"[ReadTransferExcel] 已归档到 {_archive_order_file(path)}")  #解析成功才归档，格式错的留在收件箱里等改
         return True  #读取成功
 
 
