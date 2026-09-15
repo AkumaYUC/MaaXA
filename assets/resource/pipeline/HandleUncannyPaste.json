@@ -1,0 +1,33 @@
+{
+    "ClickUncannyPasteButton": {
+        "desc": "点击粘贴异常的确定按钮关闭异常弹窗",
+        "recognition": "OCR",
+        "roi": "UncannyPasteRecognition",
+        "expected": [
+            "确定"
+        ],
+        "pre_delay": 0,
+        "action": "Click",
+        "post_delay": 0,
+        "rate_limit": 0
+    },
+    "UncannyPasteRecognition": {
+        "desc": "粘贴异常处理任务入口，识别粘贴异常错误",
+        "recognition": "OCR",
+        "roi": [
+            346,
+            224,
+            489,
+            243
+        ],
+        "expected": [
+            "粘贴异常"
+        ],
+        "pre_delay": 0,
+        "post_delay": 0,
+        "rate_limit": 0,
+        "next": [
+            "ClickUncannyPasteButton"
+        ]
+    }
+}

@@ -44,9 +44,6 @@
         "rate_limit": 0,
         "next": [
             "读取单据"
-        ],
-        "on_error": [
-            "点击新增（开新单）"
         ]
     },
     "右移一格（找调入仓位）": {
@@ -57,13 +54,7 @@
         ],
         "post_delay": 0,
         "timeout": 1500,
-        "rate_limit": 0,
-        "next": [
-            "确认四列可见"
-        ],
-        "on_error": [
-            "右移一格（找调入仓位）"
-        ]
+        "rate_limit": 0
     },
     "右键供应商列表": {
         "recognition": "OCR",
@@ -403,6 +394,7 @@
         ]
     },
     "拉回金蝶云": {
+        "desc": "直接调拨单任务入口",
         "pre_delay": 0,
         "action": "Custom",
         "custom_action": "Win32BringToFront",
@@ -637,6 +629,19 @@
             "复制调出仓位"
         ]
     },
+    "点击提交": {
+        "recognition": "OCR",
+        "roi": [
+            0,
+            77,
+            407,
+            30
+        ],
+        "expected": [
+            "提交"
+        ],
+        "action": "Click"
+    },
     "点击搜索": {
         "recognition": "TemplateMatch",
         "roi": [
@@ -739,9 +744,6 @@
         "rate_limit": 0,
         "next": [
             "取消保存订单"
-        ],
-        "on_error": [
-            "读取单据"
         ]
     },
     "点击物料名称栏": {
@@ -897,10 +899,10 @@
     "点击调入仓位列": {
         "recognition": "OCR",
         "roi": [
-            981,
-            563,
-            91,
-            32
+            21,
+            532,
+            1150,
+            163
         ],
         "expected": [
             "调入仓位"
@@ -908,10 +910,10 @@
         "pre_delay": 0,
         "action": "Click",
         "target_offset": [
-            5,
+            1,
             32,
-            -15,
-            -7
+            -1,
+            -5
         ],
         "post_delay": 0,
         "timeout": 10000,
@@ -923,10 +925,10 @@
     "点击调入仓库列": {
         "recognition": "OCR",
         "roi": [
-            886,
-            562,
-            96,
-            34
+            21,
+            532,
+            1150,
+            163
         ],
         "expected": [
             "调入仓库"
@@ -934,10 +936,10 @@
         "pre_delay": 0,
         "action": "Click",
         "target_offset": [
-            5,
+            1,
             32,
-            -15,
-            -7
+            -1,
+            -5
         ],
         "post_delay": 0,
         "rate_limit": 0,
@@ -973,10 +975,10 @@
     "点击调出仓位列": {
         "recognition": "OCR",
         "roi": [
-            790,
-            565,
-            93,
-            31
+            21,
+            532,
+            1150,
+            163
         ],
         "expected": [
             "调出仓位"
@@ -984,10 +986,10 @@
         "pre_delay": 0,
         "action": "Click",
         "target_offset": [
-            5,
+            1,
             32,
-            -15,
-            -7
+            -1,
+            -5
         ],
         "post_delay": 0,
         "timeout": 10000,
@@ -1002,10 +1004,10 @@
     "点击调出仓库列": {
         "recognition": "OCR",
         "roi": [
-            698,
-            564,
-            91,
-            31
+            21,
+            532,
+            1150,
+            163
         ],
         "expected": [
             "调出仓库"
@@ -1013,10 +1015,10 @@
         "pre_delay": 0,
         "action": "Click",
         "target_offset": [
-            5,
+            1,
             32,
-            -15,
-            -7
+            -1,
+            -5
         ],
         "post_delay": 0,
         "rate_limit": 0,
@@ -1143,15 +1145,19 @@
         "rate_limit": 0,
         "next": [
             "点击调出仓库列"
+        ],
+        "on_error": [
+            "[JumpBack]右移一格（找调入仓位）"
         ]
     },
     "确认数量已粘贴": {
         "recognition": "OCR",
-        "roi": [
-            601,
-            598,
-            59,
-            20
+        "roi": "点击块粘贴",
+        "roi_offset": [
+            2,
+            37,
+            -2,
+            -14
         ],
         "expected": [
             "^0(\\.0+)?$"
@@ -1161,7 +1167,7 @@
         "post_delay": 0,
         "rate_limit": 0,
         "next": [
-            "右移一格（找调入仓位）"
+            "确认四列可见"
         ]
     },
     "确认新增单据打开": {

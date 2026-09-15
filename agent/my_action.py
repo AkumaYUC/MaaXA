@@ -1,6 +1,7 @@
 import json
 import ctypes
 import re
+import time
 
 from maa.agent.agent_server import AgentServer
 from maa.custom_action import CustomAction
@@ -56,13 +57,37 @@ class Win32BringToFront(CustomAction):
             return False  #没找到匹配的窗口（有可能是没打开），返回False
 
         hwnd = found[0]  #取第一个匹配的窗口句柄
-        if user32.IsIconic(hwnd):  #判断窗口是否最小化
-            user32.ShowWindow(hwnd, 9)  #如果最小化，则恢复窗口，9 = SW_RESTORE
-        else:
-            user32.ShowWindow(hwnd, 5)  #如果不是最小化，则显示窗口，5 = SW_SHOW
 
-        user32.keybd_event(0x12, 0, 0, 0)  #模拟按下Alt键
-        user32.SetForegroundWindow(hwnd)  #将窗口置顶
-        user32.keybd_event(0x12, 0, 2, 0)  #模拟释放Alt键
+        #只救「真最小化」（缩到任务栏时截图只能截到桌面，任务必挂）；窗口大小一律不主动改。
+        #模板和 ROI 是按「最大化窗口」的尺寸标定的，任何主动还原/最大化都可能改掉窗口尺寸
+        #导致归一化截图变化、模板全挂（踩坑清单#26 同源）。最大化与否由用户自己保持。
+        iconic_at_entry = bool(user32.IsIconic(hwnd))
+        if iconic_at_entry:
+            user32.ShowWindow(hwnd, 9)  #9 = SW_RESTORE；最大化后被最小化的窗口会还原回最大化
+            time.sleep(0.1)
 
-        return True  #成功将窗口置顶，返回True
+        #本动作原先一行日志都没有，窗口出问题只能靠 on_error 截图反推，补上状态快照
+        from ctypes import wintypes
+        rect = wintypes.RECT()
+        user32.GetWindowRect(hwnd, ctypes.byref(rect))
+        print(f"[Win32BringToFront] hwnd={hwnd} iconic_at_entry={iconic_at_entry} "
+              f"zoomed_now={bool(user32.IsZoomed(hwnd))} "
+              f"rect={rect.left},{rect.top},{rect.right},{rect.bottom} "
+              f"size={rect.right - rect.left}x{rect.bottom - rect.top}")
+
+        if user32.GetForegroundWindow() == hwnd:  #已经在前台就到此为止，多余动作只会引入副作用（同 _activate_window 原则）
+            return True
+
+        #借目标线程的输入队列绕系统前台锁（AttachThreadInput），不用 Alt——Alt 会让金蝶进菜单加速键模式
+        #（踩坑清单#26：Alt 后紧跟 Enter 被当成激活菜单项，实测弹出带「关闭」按钮的窗口）
+        target_tid = user32.GetWindowThreadProcessId(hwnd, None)  #目标窗口所属线程
+        our_tid = ctypes.windll.kernel32.GetCurrentThreadId()
+        user32.AttachThreadInput(our_tid, target_tid, True)  #挂上，SetForegroundWindow 才不会被前台锁拒绝
+        user32.BringWindowToTop(hwnd)
+        ok = user32.SetForegroundWindow(hwnd)
+        user32.AttachThreadInput(our_tid, target_tid, False)  #用完立刻解绑，挂着不放会连带卡住输入
+        time.sleep(0.1)  #给窗口切换一点时间
+
+        #旧版无脑返回 True 装成功，前台实际被 Windows 间歇性拒绝（日志 327 次 Failed to ensure foreground）
+        #任务开头只拉这一次，装成功=后面全程裸奔。真的到位了才报成功，失败让 pipeline 走 on_error
+        return bool(ok) and user32.GetForegroundWindow() == hwnd
