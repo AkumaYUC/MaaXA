@@ -958,6 +958,7 @@
         "expected": [
             "调入库存组织"
         ],
+        "pre_wait_freezes": 1000,
         "pre_delay": 0,
         "action": "Click",
         "target_offset": [
@@ -966,6 +967,7 @@
             -57,
             -11
         ],
+        "post_wait_freezes": 1000,
         "post_delay": 0,
         "rate_limit": 0,
         "next": [
@@ -1372,7 +1374,8 @@
             "field": "target_org",
             "select_all": true
         },
-        "post_delay": 500,
+        "post_wait_freezes": 1200,
+        "post_delay": 0,
         "rate_limit": 0,
         "next": [
             "回车确认（调入库存组织）"

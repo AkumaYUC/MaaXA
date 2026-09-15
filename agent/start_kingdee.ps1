@@ -1,10 +1,32 @@
-param(
-    [Parameter(Mandatory = $true)]
-    [string]$Exe,
+﻿param(
+    [string]$Exe = '',                                    #不传则自动探测金蝶客户端安装路径
     [Parameter(Mandatory = $true)]
     [string]$WindowRegex,
     [int]$WaitSeconds = 60
 )
+
+#金蝶云客户端的默认安装位置（相对各盘的 Program Files 目录）
+$kingdeeRelativePath = 'Kingdee\K3Cloud\DeskClient\K3CloudClient\Kingdee.BOS.XPF.App.exe'
+
+function Find-KingdeeExe {
+    #遍历所有磁盘 × 两种 Program Files，命中即返回；都没有则返回 $null，由调用方报错
+    foreach ($drive in (Get-PSDrive -PSProvider FileSystem -ErrorAction SilentlyContinue).Root) {
+        foreach ($programFiles in @('Program Files (x86)', 'Program Files')) {
+            $candidate = Join-Path $drive (Join-Path $programFiles $kingdeeRelativePath)
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
+        }
+    }
+    return $null
+}
+
+if ([string]::IsNullOrWhiteSpace($Exe)) {
+    $Exe = Find-KingdeeExe
+    if ($null -eq $Exe) {
+        Write-Error "未能自动找到金蝶云客户端，请用 -Exe 参数手动指定 Kingdee.BOS.XPF.App.exe 的完整路径。"
+        exit 2
+    }
+    Write-Output "Auto-detected Kingdee client: $Exe"
+}
 
 if (-not (Test-Path -LiteralPath $Exe -PathType Leaf)) {
     Write-Error "Target executable was not found: $Exe"

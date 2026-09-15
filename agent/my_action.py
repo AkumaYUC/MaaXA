@@ -78,16 +78,42 @@ class Win32BringToFront(CustomAction):
         if user32.GetForegroundWindow() == hwnd:  #已经在前台就到此为止，多余动作只会引入副作用（同 _activate_window 原则）
             return True
 
-        #借目标线程的输入队列绕系统前台锁（AttachThreadInput），不用 Alt——Alt 会让金蝶进菜单加速键模式
-        #（踩坑清单#26：Alt 后紧跟 Enter 被当成激活菜单项，实测弹出带「关闭」按钮的窗口）
-        target_tid = user32.GetWindowThreadProcessId(hwnd, None)  #目标窗口所属线程
+        #前台锁是间歇性的：单次 SetForegroundWindow 时灵时不灵，实测「要点好几次才能启动任务」。
+        #改为最多 3 轮阶梯重试，任一轮到位即返回，全部落空才报 False 让 pipeline 走 on_error。
+        #不用 Alt 绕锁——Alt 会让金蝶进菜单加速键模式，紧跟的 Enter 被当成激活菜单项（踩坑清单#26）。
         our_tid = ctypes.windll.kernel32.GetCurrentThreadId()
-        user32.AttachThreadInput(our_tid, target_tid, True)  #挂上，SetForegroundWindow 才不会被前台锁拒绝
-        user32.BringWindowToTop(hwnd)
-        ok = user32.SetForegroundWindow(hwnd)
-        user32.AttachThreadInput(our_tid, target_tid, False)  #用完立刻解绑，挂着不放会连带卡住输入
-        time.sleep(0.1)  #给窗口切换一点时间
+        target_tid = user32.GetWindowThreadProcessId(hwnd, None)  #目标窗口所属线程
 
-        #旧版无脑返回 True 装成功，前台实际被 Windows 间歇性拒绝（日志 327 次 Failed to ensure foreground）
-        #任务开头只拉这一次，装成功=后面全程裸奔。真的到位了才报成功，失败让 pipeline 走 on_error
-        return bool(ok) and user32.GetForegroundWindow() == hwnd
+        def activate(attach_tid):
+            #把「当前拥有前台资格的线程」和「目标窗口线程」一起挂到自己的输入队列上再置顶。
+            #Windows 的前台资格绑定在最近收到输入的线程上，借它的队列才能绕过前台锁。
+            if attach_tid:
+                user32.AttachThreadInput(our_tid, attach_tid, True)
+            user32.AttachThreadInput(our_tid, target_tid, True)
+            user32.BringWindowToTop(hwnd)
+            user32.SetForegroundWindow(hwnd)
+            user32.AttachThreadInput(our_tid, target_tid, False)  #用完立刻解绑，挂着不放会连带卡住输入
+            if attach_tid:
+                user32.AttachThreadInput(our_tid, attach_tid, False)
+
+        for round_no in range(1, 4):  #最多 3 轮
+            fg_hwnd = user32.GetForegroundWindow()  #当前前台窗口（每轮重取，它会被上一轮改变）
+            if fg_hwnd == hwnd:
+                break  #已经到位，不必再动
+
+            if round_no <= 2:
+                #前两轮借「当前前台窗口的线程」的资格，比只挂目标线程更有效
+                activate(user32.GetWindowThreadProcessId(fg_hwnd, None) if fg_hwnd else 0)
+            else:
+                #第 3 轮兜底：SwitchToThisWindow 是 Alt+Tab 的内部实现，不受前台锁限制
+                #（它是 API 调用不是模拟按键，不会像 Alt 那样把金蝶带进菜单加速键模式）
+                user32.SwitchToThisWindow(hwnd, True)
+
+            time.sleep(0.15)  #给窗口切换一点时间
+
+        #旧版无脑返回 True 装成功，前台实际被 Windows 间歇性拒绝（日志 327 次 Failed to ensure foreground）。
+        #现在真的到位才报成功；结果连两侧句柄一起打日志，失败时不用靠 on_error 截图反推。
+        at_front = user32.GetForegroundWindow() == hwnd
+        print(f"[Win32BringToFront] 置顶{'成功' if at_front else '失败'} "
+              f"foreground={user32.GetForegroundWindow()} target={hwnd}")
+        return at_front

@@ -43,6 +43,7 @@
 
     // Windows-only：在 Maa Controller 创建前确保金蝶云已启动。
     // 脚本会复用已有的金蝶窗口或进程，不会重复启动；不要同时启用 Avalonia 的“启动游戏”。
+    // 金蝶安装路径由脚本自动探测（遍历各盘 Program Files），无需在这里配置。
     "pretask": {
         "name": "启动金蝶云",
         "label": "启动金蝶云",
@@ -58,8 +59,6 @@
             "Bypass",
             "-File",
             "../../agent/start_kingdee.ps1",
-            "-Exe",
-            "C:/Program Files (x86)/Kingdee/K3Cloud/DeskClient/K3CloudClient/Kingdee.BOS.XPF.App.exe",
             "-WindowRegex",
             "金蝶|云星空|Kingdee.BOS.XPF",
             "-WaitSeconds",
