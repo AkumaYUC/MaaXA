@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import shutil
+import subprocess
 import sys
 
 try:
@@ -138,6 +139,30 @@ def install_agent():
         working_dir / "agent",
         install_path / "agent",
         dirs_exist_ok=True,
+        ignore=shutil.ignore_patterns("__pycache__"),
+    )
+
+    #发布包里没有开发机的 .venv，把 agent 的 child_exec 指向包内的便携 Python；
+    #child_args 走相对路径，相对的是进程工作目录（发行根，见 GUI 的 AppPaths.DataRoot）
+    interface_path = install_path / "interface.json"
+    with open(interface_path, "r", encoding="utf-8") as f:
+        interface = jsonc.load(f)
+
+    interface["agent"] = {
+        "child_exec": "python/python.exe",
+        "child_args": ["-u", "agent/main.py"],
+    }
+
+    with open(interface_path, "w", encoding="utf-8") as f:
+        jsonc.dump(interface, f, ensure_ascii=False, indent=4)
+
+
+def install_python_runtime():
+    #下载便携 Python 并装好 agent 依赖（落地到 install/python）
+    subprocess.run(
+        [sys.executable, str(working_dir / "tools" / "setup_embed_python.py")],
+        cwd=working_dir,
+        check=True,
     )
 
 
@@ -146,5 +171,6 @@ if __name__ == "__main__":
     install_resource()
     install_chores()
     install_agent()
+    install_python_runtime()
 
     print(f"Install to {install_path} successfully.")
