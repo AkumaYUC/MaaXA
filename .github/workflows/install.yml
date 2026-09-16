@@ -122,10 +122,14 @@ jobs:
           python -m pip install -r ./requirements.txt
           python ./install.py ${{ needs.meta.outputs.tag }} win x86_64
 
+      # artifact 会占用账户配额（私有仓库仅 500MB），只在正式发版时上传，平时 push 不占；
+      # retention-days: 1 让它被 release job 取走后尽快释放
       - uses: actions/upload-artifact@v4
+        if: ${{ needs.meta.outputs.is_release == 'true' }}
         with:
           name: MaaXA-win-x86_64
           path: "install"
+          retention-days: 1
 
   changelog:
     name: Generate changelog
@@ -142,16 +146,21 @@ jobs:
       - name: Generate a changelog
         uses: orhun/git-cliff-action@v4
         id: git-cliff
+        # 更新日志生成失败不阻塞发版（release job 的 body 会退回默认文案）
+        continue-on-error: true
         with:
           config: .github/cliff.toml
           # 正式版：使用 tag-pattern 只匹配正式版标签，包含所有从上一个正式版以来的提交
           # 预发布版：正常生成，只包含从上一个标签以来的提交
+          # 不要加 -vv：它会把日志灌满 TLS 调试输出，真出错时反而看不见原因
           args: >-
-            -vv --latest --strip header
+            --latest --strip header
             ${{ needs.meta.outputs.is_prerelease == 'false' && '--tag-pattern "^v[0-9]+\\.[0-9]+\\.[0-9]+$"' || '' }}
         env:
           OUTPUT: CHANGES.md
           GITHUB_REPO: ${{ github.repository }}
+          # 本仓库是 Private，cliff.toml 的 [remote.github] 需要 token 才能读到 commit/PR 元信息
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   release:
     if: ${{ needs.meta.outputs.is_release == 'true' }}
@@ -172,7 +181,7 @@ jobs:
         with:
           files: assets/*
           tag_name: ${{ needs.meta.outputs.tag }}
-          body: ${{ needs.changelog.outputs.release_body }}
+          body: ${{ needs.changelog.outputs.release_body || '详见提交记录。' }}
           draft: false
           prerelease: ${{ needs.meta.outputs.is_prerelease == 'true' }}
 
