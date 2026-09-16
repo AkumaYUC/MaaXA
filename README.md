@@ -1,43 +1,50 @@
 <!-- markdownlint-disable MD033 MD041 -->
 <p align="center">
-  <img alt="LOGO" src="https://cdn.jsdelivr.net/gh/MaaAssistantArknights/design@main/v1/icons/maa-logo_512x512.png" width="256" height="256" />
+  <img alt="LOGO" src="docs/images/logo.png" width="256" height="256" />
 </p>
 
 <div align="center">
 
-# MaaPracticeBoilerplate
+# MaaXA
+
+金蝶云自动化办公助手
 
 </div>
 
-本仓库为 [MaaFramework](https://github.com/MaaXYZ/MaaFramework) 所提供的项目模板，开发者可基于此模板直接创建自己的 MaaXXX 项目。
+基于 [MaaFramework](https://github.com/MaaXYZ/MaaFramework) 构建，界面使用 [MFAAvalonia](https://github.com/MaaXYZ/MFAAvalonia)。
 
-> **MaaFramework** 是基于图像识别技术、运用 [MAA](https://github.com/MaaAssistantArknights/MaaAssistantArknights) 开发经验去芜存菁、完全重写的新一代自动化黑盒测试框架。
-> 低代码的同时仍拥有高扩展性，旨在打造一款丰富、领先、且实用的开源库，助力开发者轻松编写出更好的黑盒测试程序，并推广普及。
+## 功能
 
-## 即刻开始
+- **直接调拨单**：把 Excel 调拨单拖进界面，自动逐单录入金蝶云（物料编码、数量、调出/调入仓库与仓位、备注）。任务全部成功后自动归档单据副本，并按保留期清理过期文件。
+- **启动应用**：自动拉起金蝶云客户端；若已有窗口或进程则跳过，不会重复启动。
 
-**请不要直接克隆本仓库！你应该通过模板创建自己的项目！**  
+## 下载使用
 
-请阅读 [如何开发](./docs/zh_cn/develop/how_to_develop.md)。
+1. 到 [Releases](../../releases) 下载 `MaaXA-win-x86_64-<版本>.zip`
+2. 解压到任意目录
+3. 运行 `MFAAvalonia.exe`
+4. 如果提示缺少运行库，运行目录下的 `DependencySetup_依赖库安装_win.bat`
 
-向本模板仓库提交改动前，请阅读 [PR 规范](./docs/zh_cn/develop/pull_request_guidelines.md)。
+**环境要求**：Windows 10 / 11 + 金蝶云星空客户端。
 
-## 生态共建
+## 使用步骤
 
-MAA 正计划建设为一类项目，而非舟的单一软件。
+1. 启动金蝶云客户端（程序也会自动尝试拉起）
+2. 把 Excel 调拨单拖进「单据文件」
+3. 点「开始任务」
 
-若您的项目依赖于 MaaFramework，我们欢迎您将它命名为 MaaXXX, MXA, MAX 等等。当然，这是许可而不是限制，您也可以自由选择其他与 MAA 无关的名字，完全取决于您自己的想法！
+Excel 表头需与下列一致：物料编码、数量、调出仓库、调出仓位、调入仓库、调入仓位、备注。
 
-同时，我们也非常欢迎您提出 PR，在 [社区项目列表](https://github.com/MaaXYZ/MaaFramework#%E7%A4%BE%E5%8C%BA%E9%A1%B9%E7%9B%AE) 中添加上您的项目！
+## 从源码构建
 
-## 常见问题
-
-请阅读 [常见问题](./docs/zh_cn/develop/faq.md)。
+需要 .NET 10 SDK。图形界面源码在 `gui/MFAAvalonia`，自动化资源与 agent 分别在 `assets/`、`agent/`。
 
 ## 鸣谢
 
-本项目由 **[MaaFramework](https://github.com/MaaXYZ/MaaFramework)** 强力驱动！
+本项目由 **[MaaFramework](https://github.com/MaaXYZ/MaaFramework)** 强力驱动，界面基于 **[MFAAvalonia](https://github.com/MaaXYZ/MFAAvalonia)**，项目骨架来自 **[MaaPracticeBoilerplate](https://github.com/MaaXYZ/MaaPracticeBoilerplate)** 模板。
 
-感谢以下开发者对本项目作出的贡献（下面链接改成你自己的项目地址）:
+[![Contributors](https://contrib.rocks/image?repo=AkumaYUC/MaaXA)](https://github.com/AkumaYUC/MaaXA)
 
-[![Contributors](https://contrib.rocks/image?repo=MaaXYZ/MaaFramework&max=1000)](https://github.com/AkumaYUC/MAAXA)
+## 许可证
+
+[GPL-3.0](LICENSE)

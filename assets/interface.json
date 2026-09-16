@@ -5,9 +5,9 @@
     // 示例：https://github.com/MaaXYZ/MaaFramework/blob/main/sample/interface.json
     "interface_version": 2,
     "name": "MaaXA",
-    "description": "这是一个使用 MaaFramework 创建的项目。",
+    "description": "金蝶云自动化办公助手：Excel 调拨单自动录入金蝶云星空。",
     "contact": "AkumaYUC#0001",
-    "license": "MIT",
+    "license": "GPL-3.0",
     "welcome": "欢迎使用 MAAXA!目前程序还在开发阶段，可能会有各种各样的bug或者需要优化的流程，如有问题请联系开发者。",
 
     // 填写项目地址和版本号可实现自动更新功能

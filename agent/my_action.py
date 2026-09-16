@@ -8,21 +8,6 @@ from maa.custom_action import CustomAction
 from maa.context import Context
 
 
-@AgentServer.custom_action("my_action_111")  #此为自定义动作模版
-class MyCustomAction(CustomAction):
-
-    def run(
-        self,
-        context: Context,
-        argv: CustomAction.RunArg,
-    ) -> bool:
-
-        print("my_action_111 is running!")
-
-        return True
-
-
-
 @AgentServer.custom_action("Win32BringToFront")  #将指定窗口置顶
 class Win32BringToFront(CustomAction):
 
