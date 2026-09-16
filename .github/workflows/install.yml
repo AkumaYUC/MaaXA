@@ -5,7 +5,7 @@ env:
   # - 设置 VERSION 为空字符串时，下载 latest 版本
   # - 设置 VERSION 为具体版本号时（如 v1.2.3），下载指定版本
   MAAFW_VERSION: ""
-  MFAA_VERSION: ""
+  # 注意：GUI 不再从上游仓库下载预编译版，改为在本仓库源码编译（见 install job）。
 
 on:
   push:
@@ -16,6 +16,8 @@ on:
     paths:
       - ".github/workflows/install.yml"
       - "assets/**"
+      - "gui/**"
+      - "tools/**"
       - "**.py"
   pull_request:
     branches:
@@ -23,6 +25,8 @@ on:
     paths:
       - ".github/workflows/install.yml"
       - "assets/**"
+      - "gui/**"
+      - "tools/**"
       - "**.py"
   workflow_dispatch:
 
@@ -69,78 +73,58 @@ jobs:
 
   install:
     needs: meta
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        os: [win, macos, linux, android]
-        arch: [aarch64, x86_64]
-      fail-fast: false
+    # 本项目只面向 Windows（金蝶云客户端），且 GUI 源码编译、便携 Python 都只在 Windows 上有意义，
+    # 因此不再跑 8 平台矩阵，固定 win/x86_64。
+    runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
 
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build MFAAvalonia
+        shell: pwsh
+        # -o 显式指定输出目录，避免依赖 csproj 里 $(Platform) 的实际取值
+        run: dotnet publish gui/MFAAvalonia/MFAAvalonia.Desktop/MFAAvalonia.Desktop.csproj -c Release -r win-x64 --self-contained false -o gui-publish
+
+      - name: Remove built-in runtime in GUI
+        shell: pwsh
+        # GUI 自带的 runtimes 来自 NuGet 包，这里删掉，改用 install.py 从 MaaFramework release 铺的那份，
+        # 保证 GUI 与 agent 用的是同一套原生库
+        run: Remove-Item -Recurse -Force gui-publish/runtimes -ErrorAction SilentlyContinue
+
       - name: Download MaaFramework
         uses: robinraju/release-downloader@v1
         with:
           repository: MaaXYZ/MaaFramework
-          fileName: "MAA-${{ matrix.os }}-${{ matrix.arch }}*"
+          fileName: "MAA-win-x86_64*"
           latest: ${{ env.MAAFW_VERSION == '' }}
           tag: ${{ env.MAAFW_VERSION }}
           out-file-path: "deps"
           extract: true
 
-      - name: Download MFAAvalonia
-        if: matrix.os != 'android'
-        id: download_mfa
-        uses: robinraju/release-downloader@v1
-        with:
-          repository: SweetSmellFox/MFAAvalonia
-          fileName: "MFAAvalonia-*-${{ (matrix.os == 'win' && 'win') || (matrix.os == 'macos' && 'osx') || (matrix.os == 'linux' && 'linux') }}-${{ (matrix.arch == 'x86_64' && 'x64') || (matrix.arch == 'aarch64' && 'arm64') }}*"
-          latest: ${{ env.MFAA_VERSION == '' }}
-          tag: ${{ env.MFAA_VERSION }}
-          out-file-path: "MFA"
-          extract: true
-
-      - name: Clean up MFAAvalonia archive
-        if: matrix.os != 'android'
-        shell: bash
-        run: |
-          ARCHIVE_FILE_PATH="${{ fromJson(steps.download_mfa.outputs.downloaded_files)[0] }}"
-          rm -f "${ARCHIVE_FILE_PATH}"
-          echo "Archive cleanup command executed for MFAAvalonia."
-
-      - name: Remove built-in runtime in MFA
-        if: matrix.os != 'android'
-        shell: bash
-        run: |
-          rm -rf MFA/runtimes
-      
       - name: Install
-        shell: bash
+        shell: pwsh
         run: |
-          if [[ "${{ matrix.os }}" != "android" ]]; then
-            if [ -d "MFA" ]; then
-              echo "Copying MFA files to install directory..."
-              mkdir -p install
-              rsync -av --ignore-existing MFA/ install/
-              echo "MFA files copied successfully."
-            else
-              echo "MFA directory not found, skipping copy."
-            fi
-          else
-            echo "Skipping copy MFA for Android."
-          fi
-
-          cd tools/
+          New-Item -ItemType Directory -Force -Path install | Out-Null
+          Copy-Item -Recurse -Force "gui-publish/*" install/
+          cd tools
           python -m pip install -r ./requirements.txt
-          python ./install.py ${{ needs.meta.outputs.tag }} ${{ matrix.os }} ${{ matrix.arch }}
-          cd ..
+          python ./install.py ${{ needs.meta.outputs.tag }} win x86_64
 
       - uses: actions/upload-artifact@v4
         with:
-          name: MaaXXX-${{ matrix.os }}-${{ matrix.arch }}
+          name: MaaXA-win-x86_64
           path: "install"
 
   changelog:
@@ -183,7 +167,7 @@ jobs:
           for f in *; do
             (cd $f && zip -r ../$f-${{ needs.meta.outputs.tag }}.zip .)
           done
-          
+
       - uses: softprops/action-gh-release@v2
         with:
           files: assets/*
