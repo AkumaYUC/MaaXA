@@ -110,6 +110,10 @@ jobs:
     # 因此不跑平台矩阵。构建与发版合并成同一个 job：私有仓库的 artifact 存储配额只有 500MB，
     # 且配额重算有 6~12 小时延迟，用 artifact 在 job 间中转大文件很容易卡死发版流程。
     runs-on: windows-latest
+    permissions:
+      # 仓库的默认 workflow 权限是 read，创建 Release 会被 403（Resource not accessible by integration）拒绝，
+      # 这里显式提权；其余 job 不需要写权限，按最小权限原则只在 build 声明
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
