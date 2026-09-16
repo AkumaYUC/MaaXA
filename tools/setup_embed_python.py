@@ -10,6 +10,9 @@ import sys
 import urllib.request
 import zipfile
 
+#CI（Windows runner）的 stdout 默认是 cp1252，打印中文会 UnicodeEncodeError，先切到 UTF-8
+sys.stdout.reconfigure(encoding="utf-8")
+
 #目标 Python 版本，与开发环境的 .venv 保持一致，避免行为差异
 PYTHON_VERSION = "3.12.10"
 #便携环境落地目录（相对项目根）

@@ -43,4 +43,7 @@ jobs:
       - name: Validate JSON Schema
         run: |
           python -m pip install jsonschema==4.26.0 referencing==0.37.0
-          python tools/validate_schema.py --schema-dir deps/tools --resource-dirs assets/resource --exclude-dirs assets/resource/announcement --interface-files assets/interface.json
+          # 只校验真正的 pipeline 目录：assets/resource 根下还有 MFAAvalonia 写的 mfa_layout.json，
+          # 它是界面布局不是 pipeline，套 pipeline schema 必然报错。
+          # 也不校验 interface.json：本项目的 file 类型 option 是对 PI v2 的扩展，官方 schema 未收录。
+          python tools/validate_schema.py --schema-dir deps/tools --resource-dirs assets/resource/pipeline assets/resource/base/pipeline

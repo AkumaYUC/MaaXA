@@ -234,9 +234,9 @@ def main():
     parser.add_argument(
         "--interface-files",
         type=str,
-        nargs="+",
-        default=["assets/interface.json"],
-        help="Path to interface.json files (default: assets/interface.json)",
+        nargs="*",
+        default=[],
+        help="Path to interface.json files (default: none, i.e. skip interface validation)",
     )
     parser.add_argument(
         "--task-dirs",
