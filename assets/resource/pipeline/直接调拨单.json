@@ -40,6 +40,7 @@
         ],
         "pre_delay": 0,
         "action": "Click",
+        "post_wait_freezes": 1200,
         "post_delay": 0,
         "rate_limit": 0,
         "next": [
@@ -739,6 +740,7 @@
         ],
         "pre_delay": 0,
         "action": "Click",
+        "post_wait_freezes": 1000,
         "post_delay": 0,
         "timeout": 10000,
         "rate_limit": 0,
@@ -1088,6 +1090,7 @@
         "expected": [
             "调拨类型"
         ],
+        "pre_wait_freezes": 800,
         "pre_delay": 0,
         "action": "Click",
         "target_offset": [
@@ -1337,6 +1340,25 @@
             "点击批量填充（调出仓库）"
         ]
     },
+    "确认调拨类型输入": {
+        "recognition": "OCR",
+        "roi": "点击调拨类型",
+        "roi_offset": [
+            57,
+            19,
+            77,
+            3
+        ],
+        "expected": [
+            ""
+        ],
+        "next": [
+            "回车确认（调拨类型）"
+        ],
+        "on_error": [
+            "点击调拨类型"
+        ]
+    },
     "粘贴物料编码": {
         "pre_delay": 0,
         "action": "Custom",
@@ -1469,7 +1491,7 @@
         "post_delay": 0,
         "rate_limit": 0,
         "next": [
-            "回车确认（调拨类型）"
+            "确认调拨类型输入"
         ]
     },
     "输入备注": {
