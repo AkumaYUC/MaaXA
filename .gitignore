@@ -452,3 +452,6 @@ tools/ImageCropper/**/*.png
 
 config
 debug
+
+# MAAXA: GUI 源码里的本地发布/调试目录（publish-test 内含指向 MAAXA 资源的软链），不入库
+gui/MFAAvalonia/publish-test/
