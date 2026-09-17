@@ -45,7 +45,7 @@ Excel 表头需与下列一致：物料编码、数量、调出仓库、调出�
 
 ## 💖 感谢贡献者
 
-感谢所有为 MaaXA 添砖加瓦的开发者们！🎉
+感谢所有为 MaaXA 以及MAAFW生态添砖加瓦的开发者们！🎉
 
 [![贡献者](https://contrib.rocks/image?repo=AkumaYUC/MaaXA&max=1000)](https://github.com/AkumaYUC/MaaXA/graphs/contributors)
 

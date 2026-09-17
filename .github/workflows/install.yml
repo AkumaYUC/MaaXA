@@ -1,10 +1,11 @@
 name: install
 
 env:
-  # 版本控制：
-  # - 设置 VERSION 为空字符串时，下载 latest 版本
-  # - 设置 VERSION 为具体版本号时（如 v1.2.3），下载指定版本
-  MAAFW_VERSION: ""
+  # MAAFW_VERSION 必须钉死具体版本，不要留空！
+  # 留空 = 跟随上游 latest，会让 GUI 原生库自己漂到比 agent 绑定更新的一代，
+  # agent 启动握手即失败退出（现象是「Agent 连接失败」，且构建全程绿灯、只有用户装上才炸）。
+  # 改这里时，必须同步改 agent 的依赖钉扎（当前是 agent/requirements.txt 的 maafw==）。
+  MAAFW_VERSION: "v5.12.3"
   # 注意：GUI 不再从上游仓库下载预编译版，改为在本仓库源码编译（见 build job）。
 
 on:
@@ -146,7 +147,7 @@ jobs:
         with:
           repository: MaaXYZ/MaaFramework
           fileName: "MAA-win-x86_64*"
-          latest: ${{ env.MAAFW_VERSION == '' }}
+          # 只认 MAAFW_VERSION，不要加 latest 回退：回退会让「变量被清空」静默变回跟随上游
           tag: ${{ env.MAAFW_VERSION }}
           out-file-path: "deps"
           extract: true
@@ -159,6 +160,23 @@ jobs:
           cd tools
           python -m pip install -r ./requirements.txt
           python ./install.py ${{ needs.meta.outputs.tag }} win x86_64
+
+      - name: Verify MaaFramework natives match
+        shell: pwsh
+        # 包里凡是有第二份 MaaFramework.dll（agent 侧绑定自带的那份），必须与 deps 那份完全一致，
+        # 否则 GUI 与 agent 协议号会差一代、agent 启动握手即失败，而构建全程绿灯。
+        # 只能比文件、不能比版本号：实测 MaaFramework.dll 没有版本资源，FileVersion/ProductVersion 都是空的。
+        run: |
+          $dlls = Get-ChildItem -Path install -Recurse -Filter MaaFramework.dll
+          if (-not $dlls) { throw "install 里一个 MaaFramework.dll 都没找到，打包产物不完整" }
+
+          $hashes = $dlls | ForEach-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash } | Sort-Object -Unique
+          if ($hashes.Count -ne 1) {
+            $dlls | ForEach-Object { Write-Host "$($_.FullName)  $((Get-FileHash $_.FullName -Algorithm SHA256).Hash)" }
+            throw "包里有 $($hashes.Count) 份不一致的 MaaFramework.dll，说明 GUI 与 agent 用的不是同一个框架版本"
+          }
+
+          Write-Host "MaaFramework 原生库一致：$($hashes[0])"
 
       - name: Package
         if: ${{ needs.meta.outputs.is_release == 'true' }}
