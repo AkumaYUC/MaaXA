@@ -42,10 +42,7 @@
         "action": "Click",
         "post_wait_freezes": 1200,
         "post_delay": 0,
-        "rate_limit": 0,
-        "next": [
-            "读取单据"
-        ]
+        "rate_limit": 0
     },
     "右移一格（找调入仓位）": {
         "pre_delay": 0,
@@ -234,10 +231,11 @@
         "key": [
             13
         ],
+        "post_wait_freezes": 1200,
         "post_delay": 500,
         "rate_limit": 0,
         "next": [
-            "点击备注"
+            "点击调拨类型"
         ]
     },
     "回车确认（调出仓库）": {
@@ -282,7 +280,7 @@
         "post_delay": 0,
         "rate_limit": 0,
         "next": [
-            "点击调出库存组织"
+            "点击备注"
         ]
     },
     "复制调入仓位": {
@@ -549,7 +547,7 @@
         "post_delay": 0,
         "rate_limit": 0,
         "next": [
-            "点击新增（开新单）"
+            "点击提交"
         ]
     },
     "点击批量填充（调入仓库）": {
@@ -641,7 +639,15 @@
         "expected": [
             "提交"
         ],
-        "action": "Click"
+        "pre_wait_freezes": 800,
+        "pre_delay": 0,
+        "action": "Click",
+        "post_wait_freezes": 800,
+        "post_delay": 0,
+        "rate_limit": 0,
+        "next": [
+            "点击新增（开新单）"
+        ]
     },
     "点击搜索": {
         "recognition": "TemplateMatch",
@@ -745,7 +751,7 @@
         "timeout": 10000,
         "rate_limit": 0,
         "next": [
-            "取消保存订单"
+            "读取单据"
         ]
     },
     "点击物料名称栏": {
@@ -1039,6 +1045,7 @@
             24
         ],
         "expected": "调出库存组织",
+        "pre_wait_freezes": 1000,
         "pre_delay": 0,
         "action": "Click",
         "target_offset": [
@@ -1051,6 +1058,9 @@
         "rate_limit": 0,
         "next": [
             "粘贴调出库存组织"
+        ],
+        "on_error": [
+            "[JumpBack]点击新增"
         ]
     },
     "点击调拨数量栏": {
@@ -1103,9 +1113,6 @@
         "rate_limit": 0,
         "next": [
             "调拨类型输入"
-        ],
-        "on_error": [
-            "[JumpBack]点击新增"
         ]
     },
     "确认切换组织": {
@@ -1340,25 +1347,6 @@
             "点击批量填充（调出仓库）"
         ]
     },
-    "确认调拨类型输入": {
-        "recognition": "OCR",
-        "roi": "点击调拨类型",
-        "roi_offset": [
-            57,
-            19,
-            77,
-            3
-        ],
-        "expected": [
-            ""
-        ],
-        "next": [
-            "回车确认（调拨类型）"
-        ],
-        "on_error": [
-            "点击调拨类型"
-        ]
-    },
     "粘贴物料编码": {
         "pre_delay": 0,
         "action": "Custom",
@@ -1461,7 +1449,6 @@
         },
         "post_delay": 0,
         "rate_limit": 0,
-        "inbox": "{单据目录}",
         "next": [
             "点击主菜单"
         ]
@@ -1474,7 +1461,7 @@
         "post_delay": 0,
         "rate_limit": 0,
         "next": [
-            "点击调拨类型"
+            "点击调出库存组织"
         ],
         "on_error": [
             "全部单据已处理完成"
@@ -1488,10 +1475,11 @@
             "field": "transfer_type",
             "select_all": true
         },
+        "post_wait_freezes": 1000,
         "post_delay": 0,
         "rate_limit": 0,
         "next": [
-            "确认调拨类型输入"
+            "回车确认（调拨类型）"
         ]
     },
     "输入备注": {
