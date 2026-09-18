@@ -215,9 +215,8 @@ public partial class App : Application
                     TelemetryService.InitializeFromInterface();
 
                     // 启动懒加载：先加载 ActiveTab，再加载有定时任务的，最后加载其余
-                    _ = MaaProcessorManager.Instance.StartLazyLoadingAsync();
-
-                    CleanupArchivedOrdersOnStartup();
+                    // 归档清理必须等实例加载完再跑，不能紧跟在这行后面（见 StartLazyLoadingThenCleanupArchivedOrdersAsync）
+                    _ = StartLazyLoadingThenCleanupArchivedOrdersAsync();
                 }
 
                 DataTemplates.Add(new ViewLocator(views));
@@ -301,6 +300,17 @@ public partial class App : Application
             LoggerHelper.Error($"框架初始化失败：原因={ex.Message}", ex);
             ShowStartupErrorAndExit(ex, "框架初始化");
         }
+    }
+
+    /// <summary>
+    /// 等实例懒加载全部结束后再执行启动清理。懒加载是异步的，且第一阶段 LoadScheduledInstances
+    /// 只加载「当天有定时任务」的实例——若在启动处紧跟 StartLazyLoadingAsync 就调用清理，
+    /// 此刻 MaaProcessorManager.Instance.Instances 通常是空的，清理会静默失效。
+    /// </summary>
+    private async Task StartLazyLoadingThenCleanupArchivedOrdersAsync()
+    {
+        await MaaProcessorManager.Instance.StartLazyLoadingAsync();
+        CleanupArchivedOrdersOnStartup();
     }
 
     /// <summary>

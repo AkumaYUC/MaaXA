@@ -586,6 +586,9 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
         //「归档到」紧贴拖放区下方：任务全部成功后单据副本复制到哪
         container.Children.Add(CreateArchiveDirectoryRow());
 
+        //再往下是副本保留期：定期清理归档目录里的旧副本
+        container.Children.Add(CreateArchiveRetentionRow());
+
         return container;
 
         void ApplyDroppedFile(string path, Border border)
@@ -682,6 +685,84 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
             VerticalAlignment = VerticalAlignment.Center,
         });
         return row;
+    }
+
+    //保留期下拉的「显示文案」与「落盘值」一一对应。落盘值必须与 OrderArchiveHelper.ResolveRetentionDays
+    //的解析分支严格一致，改一边必须同步改另一边，否则设置会被静默忽略成「不清理」。
+    private static readonly string[] RetentionValues = ["off", "week", "month", "half_year", "custom"];
+    private static readonly string[] RetentionLabels = ["不清理", "保留一周", "保留一个月", "保留半年", "自定义天数"];
+
+    /// <summary>
+    /// 副本保留期（挂在归档目录下方）。选「自定义天数」时就地展开天数输入框（不再弹窗）。
+    /// 值走实例配置键落盘，与归档目录同一套机制，改动立即生效。
+    /// </summary>
+    private Control CreateArchiveRetentionRow()
+    {
+        var instanceConfig = viewModel.Processor.InstanceConfiguration;
+
+        var selectedIndex = Array.IndexOf(RetentionValues,
+            instanceConfig.GetValue(ConfigurationKeys.OrderArchiveRetention, "off"));
+        if (selectedIndex < 0) selectedIndex = 0;  //旧版本可能写过识别不了的值，回落「不清理」等用户重选
+
+        var combo = new ComboBox
+        {
+            ItemsSource = RetentionLabels,
+            SelectedIndex = selectedIndex,
+            Width = 255,
+        };
+        ToolTip.SetTip(combo, "按文件名前缀的日期清理归档目录里的旧副本；只删本程序生成的「yyyyMMdd_原名」副本，目录里其他文件一律不动");
+
+        var daysBox = new TextBox
+        {
+            Text = instanceConfig.GetValue(ConfigurationKeys.OrderArchiveCustomDays, 0).ToString(),
+            Watermark = "天数，0 = 不清理",
+            Width = 255,
+        };
+        ToolTip.SetTip(daysBox, "仅「自定义天数」时生效；保留最近多少天内归档的副本");
+
+        var daysRow = new DockPanel
+        {
+            Margin = new Thickness(0, 2, 0, 0),
+            IsVisible = RetentionValues[selectedIndex] == "custom",
+        };
+        DockPanel.SetDock(daysBox, Dock.Right);
+        daysRow.Children.Add(daysBox);
+        daysRow.Children.Add(new TextBlock
+        {
+            Text = "自定义天数",
+            FontSize = 14,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+
+        combo.SelectionChanged += (_, _) =>
+        {
+            var index = combo.SelectedIndex;
+            if (index < 0 || index >= RetentionValues.Length) return;
+            instanceConfig.SetValue(ConfigurationKeys.OrderArchiveRetention, RetentionValues[index]);
+            daysRow.IsVisible = RetentionValues[index] == "custom";
+        };
+
+        daysBox.TextChanged += (_, _) =>
+        {
+            //解析失败（空串、半输入状态）先不落盘，别把已有值冲成 0
+            if (int.TryParse(daysBox.Text, out var days))
+                instanceConfig.SetValue(ConfigurationKeys.OrderArchiveCustomDays, Math.Max(0, days));
+        };
+
+        var comboRow = new DockPanel { Margin = new Thickness(0, 2, 0, 0) };
+        DockPanel.SetDock(combo, Dock.Right);
+        comboRow.Children.Add(combo);
+        comboRow.Children.Add(new TextBlock
+        {
+            Text = "副本保留期",
+            FontSize = 14,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+
+        var container = new StackPanel();
+        container.Children.Add(comboRow);
+        container.Children.Add(daysRow);
+        return container;
     }
 
     private Control CreateHotkeyControl(MaaInterface.MaaInterfaceSelectOption option, MaaInterface.MaaInterfaceOption interfaceOption)

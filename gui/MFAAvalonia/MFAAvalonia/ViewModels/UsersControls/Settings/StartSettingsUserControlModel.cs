@@ -115,35 +115,6 @@ public partial class StartSettingsUserControlModel : ViewModelBase
         SyncCurrentGlobalEntry(entry => entry.WaitSoftwareTime = value);
     }
 
-    //保留期：off / week / month / half_year / custom
-    [ObservableProperty] private string _orderArchiveRetention = ConfigurationManager.CurrentInstance.GetValue(ConfigurationKeys.OrderArchiveRetention, "off");
-
-    //自定义保留天数（retention == custom 时生效）
-    [ObservableProperty] private int _orderArchiveCustomDays = ConfigurationManager.CurrentInstance.GetValue(ConfigurationKeys.OrderArchiveCustomDays, 0);
-
-    //清理选项选了「自定义」才显示天数输入框
-    [ObservableProperty] private bool _isCustomRetention = ConfigurationManager.CurrentInstance.GetValue(ConfigurationKeys.OrderArchiveRetention, "off") == "custom";
-
-    public ObservableCollection<LocalizationViewModel> OrderArchiveRetentionList { get; } =
-    [
-        new(LangKeys.None),
-        new(LangKeys.OneWeek),
-        new(LangKeys.OneMonth),
-        new(LangKeys.HalfYear),
-        new(LangKeys.Custom),
-    ];
-
-    partial void OnOrderArchiveRetentionChanged(string value)
-    {
-        ConfigurationManager.CurrentInstance.SetValue(ConfigurationKeys.OrderArchiveRetention, value);
-        IsCustomRetention = value == "custom";
-    }
-
-    partial void OnOrderArchiveCustomDaysChanged(int value)
-    {
-        ConfigurationManager.CurrentInstance.SetValue(ConfigurationKeys.OrderArchiveCustomDays, value);
-    }
-
     [RelayCommand]
     async private Task SelectSoft()
     {
