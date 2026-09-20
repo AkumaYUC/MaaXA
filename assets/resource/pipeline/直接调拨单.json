@@ -21,6 +21,7 @@
         "key": [
             13
         ],
+        "post_wait_freezes": 1500,
         "post_delay": 500,
         "rate_limit": 0,
         "next": [
@@ -194,19 +195,17 @@
         ]
     },
     "回车确认（搜索）": {
+        "pre_wait_freezes": 800,
         "pre_delay": 0,
         "action": "ClickKey",
         "key": [
             13
         ],
         "post_wait_freezes": 1200,
-        "post_delay": 500,
+        "post_delay": 0,
         "rate_limit": 0,
         "next": [
             "点击新增"
-        ],
-        "on_error": [
-            "[JumpBack]点击搜索"
         ]
     },
     "回车确认（调入仓库）": {
@@ -231,8 +230,8 @@
         "key": [
             13
         ],
-        "post_wait_freezes": 1200,
-        "post_delay": 500,
+        "post_wait_freezes": 1500,
+        "post_delay": 0,
         "rate_limit": 0,
         "next": [
             "点击调拨类型"
@@ -427,9 +426,6 @@
         "rate_limit": 0,
         "next": [
             "回车确认（搜索）"
-        ],
-        "on_error": [
-            "点击搜索"
         ]
     },
     "点击主菜单": {
@@ -440,7 +436,10 @@
             179,
             31
         ],
-        "template": "主菜单.png",
+        "template": [
+            "主菜单.png",
+            "主菜单2.png"
+        ],
         "pre_delay": 0,
         "action": "Click",
         "post_delay": 0,
@@ -642,7 +641,13 @@
         "pre_wait_freezes": 800,
         "pre_delay": 0,
         "action": "Click",
-        "post_wait_freezes": 800,
+        "target": [
+            148,
+            92,
+            9,
+            4
+        ],
+        "post_wait_freezes": 1000,
         "post_delay": 0,
         "rate_limit": 0,
         "next": [
@@ -672,6 +677,9 @@
         "rate_limit": 0,
         "next": [
             "搜索直接调拨单"
+        ],
+        "on_error": [
+            "点击搜索"
         ]
     },
     "点击新增": {
@@ -683,6 +691,7 @@
             29
         ],
         "expected": "新增",
+        "pre_wait_freezes": 800,
         "pre_delay": 0,
         "action": "Custom",
         "custom_action": "RepeatUntilFoundAction",
@@ -1058,9 +1067,6 @@
         "rate_limit": 0,
         "next": [
             "粘贴调出库存组织"
-        ],
-        "on_error": [
-            "[JumpBack]点击新增"
         ]
     },
     "点击调拨数量栏": {
@@ -1112,7 +1118,7 @@
         "post_delay": 0,
         "rate_limit": 0,
         "next": [
-            "调拨类型输入"
+            "粘贴调拨类型"
         ]
     },
     "确认切换组织": {
@@ -1164,12 +1170,12 @@
     },
     "确认数量已粘贴": {
         "recognition": "OCR",
-        "roi": "点击块粘贴",
+        "roi": "点击调拨数量栏",
         "roi_offset": [
+            -1,
+            35,
             2,
-            37,
-            -2,
-            -14
+            -11
         ],
         "expected": [
             "^0(\\.0+)?$"
@@ -1194,7 +1200,6 @@
             "明细信息"
         ],
         "pre_delay": 0,
-        "action": "Click",
         "post_delay": 0,
         "rate_limit": 0,
         "next": [
@@ -1331,11 +1336,12 @@
     },
     "确认调出仓库已输入": {
         "recognition": "OCR",
-        "roi": [
-            697,
-            598,
-            94,
-            21
+        "roi": "点击调出仓库列",
+        "roi_offset": [
+            2,
+            34,
+            -4,
+            -10
         ],
         "expected": [
             "仓"
@@ -1358,6 +1364,7 @@
         "timeout": 180000,
         "rate_limit": 0,
         "next": [
+            "[JumpBack]TransferOrderPasteErrorEntry",
             "识别物料是否粘贴成功"
         ]
     },
@@ -1373,6 +1380,7 @@
         "post_delay": 0,
         "rate_limit": 0,
         "next": [
+            "[JumpBack]TransferOrderPasteErrorEntry",
             "向下选择"
         ]
     },
@@ -1388,6 +1396,7 @@
         "post_delay": 0,
         "rate_limit": 0,
         "next": [
+            "[JumpBack]TransferOrderPasteErrorEntry",
             "回车确认（调入库存组织）"
         ]
     },
@@ -1403,6 +1412,7 @@
         "post_delay": 0,
         "rate_limit": 0,
         "next": [
+            "[JumpBack]TransferOrderPasteErrorEntry",
             "向下选择（调出仓库）"
         ]
     },
@@ -1418,6 +1428,7 @@
         "post_delay": 500,
         "rate_limit": 0,
         "next": [
+            "[JumpBack]TransferOrderPasteErrorEntry",
             "回车确认（调出库存组织）"
         ]
     },
@@ -1467,7 +1478,7 @@
             "全部单据已处理完成"
         ]
     },
-    "调拨类型输入": {
+    "粘贴调拨类型": {
         "pre_delay": 0,
         "action": "Custom",
         "custom_action": "PasteOrderField",
@@ -1479,6 +1490,7 @@
         "post_delay": 0,
         "rate_limit": 0,
         "next": [
+            "[JumpBack]TransferOrderPasteErrorEntry",
             "回车确认（调拨类型）"
         ]
     },
@@ -1489,7 +1501,8 @@
         "custom_action_param": {
             "field": "remark"
         },
-        "post_delay": 500,
+        "post_wait_freezes": 950,
+        "post_delay": 0,
         "rate_limit": 0,
         "next": [
             "点击新增行"

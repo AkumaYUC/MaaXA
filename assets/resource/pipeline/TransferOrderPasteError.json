@@ -1,0 +1,47 @@
+{
+    "TransferOrderPasteErrorClose": {
+        "desc": "确认粘贴错误窗口已关闭",
+        "recognition": "TemplateMatch",
+        "roi": "TransferOrderPasteErrorEntry",
+        "template": "粘贴异常.png",
+        "inverse": true,
+        "pre_wait_freezes": 800,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "rate_limit": 0
+    },
+    "TransferOrderPasteErrorEntry": {
+        "desc": "识别粘贴错误窗口的入口",
+        "recognition": "TemplateMatch",
+        "roi": [
+            317,
+            196,
+            505,
+            253
+        ],
+        "template": "粘贴异常.png",
+        "pre_wait_freezes": 800,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "rate_limit": 0,
+        "next": [
+            "TransferOrderPasteErrorClose"
+        ]
+    },
+    "TransferOrderPasteErrorOK": {
+        "desc": "识别粘贴错误窗口的确定按钮",
+        "recognition": "OCR",
+        "roi": "TransferOrderPasteErrorEntry",
+        "expected": [
+            "确定"
+        ],
+        "pre_delay": 0,
+        "action": "Click",
+        "post_wait_freezes": 800,
+        "post_delay": 0,
+        "rate_limit": 0,
+        "next": [
+            "TransferOrderPasteErrorEntry"
+        ]
+    }
+}
