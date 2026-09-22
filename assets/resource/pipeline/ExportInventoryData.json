@@ -1,0 +1,48 @@
+{
+    "ExportInventoryDataConfirmSearch": {
+        "desc": "确认搜索即时库存",
+        "pre_wait_freezes": 800,
+        "pre_delay": 0,
+        "action": "ClickKey",
+        "key": [
+            13
+        ],
+        "post_wait_freezes": 1200,
+        "post_delay": 0,
+        "rate_limit": 0
+    },
+    "ExportInventoryDataEntry": {
+        "desc": "导出即时库存数据的入口",
+        "pre_delay": 0,
+        "post_delay": 0,
+        "rate_limit": 0,
+        "next": [
+            "[JumpBack]UpKingdeeToTheFront",
+            "ExportInventoryDataSearchDetailOfInventory"
+        ]
+    },
+    "ExportInventoryDataSearchDetailOfInventory": {
+        "desc": "搜索即时库存明细",
+        "recognition": "OCR",
+        "roi": [
+            510,
+            5,
+            336,
+            38
+        ],
+        "expected": [
+            "应用菜单"
+        ],
+        "pre_delay": 0,
+        "action": "Custom",
+        "custom_action": "PasteText",
+        "custom_action_param": {
+            "text": "即时库存明细"
+        },
+        "post_delay": 0,
+        "rate_limit": 0,
+        "next": [
+            "ExportInventoryDataConfirmSearch"
+        ]
+    }
+}

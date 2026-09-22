@@ -43,11 +43,24 @@ Excel 表头需与下列一致：物料编码、数量、调出仓库、调出�
 
 本项目由 **[MaaFramework](https://github.com/MaaXYZ/MaaFramework)** 强力驱动，界面基于 **[MFAAvalonia](https://github.com/MaaXYZ/MFAAvalonia)**，项目骨架来自 **[MaaPracticeBoilerplate](https://github.com/MaaXYZ/MaaPracticeBoilerplate)** 模板。
 
+### 第三方组件
+
+以下组件非本项目开发，也不受本项目 GPL-3.0 协议约束，权利归各自所有者：
+
+- [Shizuku](https://github.com/RikkaApps/Shizuku)：Android 权限桥接组件，随界面源码树附带了一份**未经修改**的官方 APK（`gui/MFAAvalonia/MFAAvalonia.Android/ThirdParty/Shizuku/shizuku.apk`），仅供界面的 Android 相关功能使用；本项目面向 Windows 桌面端，主流程不依赖它，不需要可自行删除。
+
 ## 💖 感谢贡献者
 
 感谢所有为 MaaXA 以及MAAFW生态添砖加瓦的开发者们！🎉
 
 [![贡献者](https://contrib.rocks/image?repo=AkumaYUC/MaaXA&max=1000)](https://github.com/AkumaYUC/MaaXA/graphs/contributors)
+
+## 免责声明
+
+- 本软件开源、免费，按现状（AS IS）提供，不作任何明示或默示的保证。使用本软件即视为已阅读并同意本节全部条款。
+- **合规责任自负**：本软件通过界面识别与模拟键鼠的方式操作第三方软件。金蝶云星空等软件的用户协议、服务条款或所在单位的内部政策**可能禁止使用自动化脚本或模拟操作**，请在使用前自行确认。因使用本软件而产生的账号处置、服务中断、政策处罚或任何纠纷，均由使用者自行承担，与本软件及开发者无关。
+- **单据务必人工复核**：本软件自动录入单据，可能因界面改版、识别误差、时序波动等原因出现错录、漏录。**每次任务完成后，请自行核对系统内的单据内容**（物料编码、数量、调出/调入仓库与仓位、调出/调入库存组织、备注等）再进行后续业务操作。因未复核、错录、漏录或重复录入造成的任何业务损失与数据错误，本软件及开发者概不负责。
+- 在任何情况下，开发者不对任何直接或间接损失（包括但不限于业务损失、数据损失、利润损失）承担责任。
 
 ## 许可证
 

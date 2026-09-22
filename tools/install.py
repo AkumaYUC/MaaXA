@@ -109,6 +109,12 @@ def install_resource():
         install_path / "resource",
         dirs_exist_ok=True,
     )
+    #MFAAvalonia 启动 pretask 时把子进程工作目录设为 resource/base
+    #（gui/MFAAvalonia/MFAAvalonia/Extensions/MaaFW/MaaProcessor.cs 的 WorkingDirectory = ResourceBase），
+    #interface.json 的 pretask 写的 ../../agent/start_kingdee.ps1 全靠这个工作目录才找得到脚本。
+    #空目录进不了版本库、CI checkout 拿不到，包里没有它用户机器上「自动启动金蝶云」就失效，这里显式补上。
+    (install_path / "resource" / "base").mkdir(parents=True, exist_ok=True)
+
     shutil.copy2(
         working_dir / "assets" / "interface.json",
         install_path,

@@ -102,14 +102,13 @@ jobs:
         env:
           OUTPUT: CHANGES.md
           GITHUB_REPO: ${{ github.repository }}
-          # 本仓库是 Private，cliff.toml 的 [remote.github] 需要 token 才能读到 commit/PR 元信息
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build:
     needs: [meta, changelog]
     # 本项目只面向 Windows（金蝶云客户端），GUI 源码编译与便携 Python 也都只在 Windows 上有意义，
-    # 因此不跑平台矩阵。构建与发版合并成同一个 job：私有仓库的 artifact 存储配额只有 500MB，
-    # 且配额重算有 6~12 小时延迟，用 artifact 在 job 间中转大文件很容易卡死发版流程。
+    # 因此不跑平台矩阵。构建与发版合并成同一个 job：用 artifact 在 job 间中转大文件，
+    # 很容易被存储配额和配额重算延迟卡住发版流程。
     runs-on: windows-latest
     permissions:
       # 仓库的默认 workflow 权限是 read，创建 Release 会被 403（Resource not accessible by integration）拒绝，

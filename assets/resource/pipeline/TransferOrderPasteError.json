@@ -25,7 +25,7 @@
         "post_delay": 0,
         "rate_limit": 0,
         "next": [
-            "TransferOrderPasteErrorClose"
+            "TransferOrderPasteErrorOK"
         ]
     },
     "TransferOrderPasteErrorOK": {
@@ -41,7 +41,10 @@
         "post_delay": 0,
         "rate_limit": 0,
         "next": [
-            "TransferOrderPasteErrorEntry"
+            "TransferOrderPasteErrorClose"
+        ],
+        "on_error": [
+            "TransferOrderPasteErrorOK"
         ]
     }
 }

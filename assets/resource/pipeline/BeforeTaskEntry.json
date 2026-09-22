@@ -1,0 +1,85 @@
+{
+    "ClickMainMenuButton": {
+        "desc": "点击主菜单按钮，确保画面稳定",
+        "recognition": "TemplateMatch",
+        "roi": [
+            10,
+            55,
+            179,
+            31
+        ],
+        "template": [
+            "主菜单.png",
+            "主菜单2.png"
+        ],
+        "pre_delay": 0,
+        "action": "Click",
+        "post_wait_freezes": 800,
+        "post_delay": 0,
+        "rate_limit": 0,
+        "next": [
+            "ClickSearchButton"
+        ]
+    },
+    "ClickSearchButton": {
+        "desc": "点击搜索按钮，字面意思呢",
+        "recognition": "TemplateMatch",
+        "roi": [
+            829,
+            1,
+            159,
+            44
+        ],
+        "template": [
+            "搜索.png"
+        ],
+        "pre_delay": 0,
+        "action": "Click",
+        "target_offset": [
+            5,
+            5,
+            -9,
+            -9
+        ],
+        "post_delay": 0,
+        "rate_limit": 0,
+        "next": [
+            "ConfirmSearchOpen"
+        ],
+        "on_error": [
+            "ClickMainMenuButton"
+        ]
+    },
+    "ConfirmSearchOpen": {
+        "desc": "确认搜索框已打开，防止点击失误的情况",
+        "recognition": "OCR",
+        "roi": [
+            510,
+            5,
+            336,
+            38
+        ],
+        "expected": [
+            "应用菜单"
+        ],
+        "pre_wait_freezes": 550,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "rate_limit": 0
+    },
+    "UpKingdeeToTheFront": {
+        "desc": "将金蝶云窗口拉至前台（公共节点）",
+        "max_hit": 1,
+        "pre_delay": 0,
+        "action": "Custom",
+        "custom_action": "Win32BringToFront",
+        "custom_action_param": {
+            "window_regex": "金蝶|云星空|Kingdee.BOS.XPF"
+        },
+        "post_delay": 0,
+        "rate_limit": 0,
+        "next": [
+            "ClickMainMenuButton"
+        ]
+    }
+}

@@ -1,4 +1,12 @@
 {
+    "直接调拨单任务入口": {
+        "pre_delay": 0,
+        "post_delay": 0,
+        "rate_limit": 0,
+        "next": [
+            "读取Excel数据"
+        ]
+    },
     "上拉置顶(ctrl+home)": {
         "pre_delay": 0,
         "action": "Custom",
@@ -52,7 +60,6 @@
             39
         ],
         "post_delay": 0,
-        "timeout": 1500,
         "rate_limit": 0
     },
     "右键供应商列表": {
@@ -391,20 +398,6 @@
             "右键供应商列表（调入）"
         ]
     },
-    "拉回金蝶云": {
-        "desc": "直接调拨单任务入口",
-        "pre_delay": 0,
-        "action": "Custom",
-        "custom_action": "Win32BringToFront",
-        "custom_action_param": {
-            "window_regex": "金蝶|云星空|Kingdee.BOS.XPF"
-        },
-        "post_delay": 0,
-        "rate_limit": 0,
-        "next": [
-            "读取Excel数据"
-        ]
-    },
     "搜索直接调拨单": {
         "recognition": "OCR",
         "roi": [
@@ -443,10 +436,7 @@
         "pre_delay": 0,
         "action": "Click",
         "post_delay": 0,
-        "rate_limit": 0,
-        "next": [
-            "点击搜索"
-        ]
+        "rate_limit": 0
     },
     "点击块粘贴": {
         "recognition": "OCR",
@@ -675,9 +665,6 @@
         ],
         "post_delay": 0,
         "rate_limit": 0,
-        "next": [
-            "搜索直接调拨单"
-        ],
         "on_error": [
             "点击搜索"
         ]
@@ -871,11 +858,12 @@
     },
     "点击维度数据录入符号": {
         "recognition": "TemplateMatch",
-        "roi": [
-            791,
-            598,
-            95,
-            23
+        "roi": "点击调出仓位列",
+        "roi_offset": [
+            -19,
+            21,
+            43,
+            18
         ],
         "template": [
             "维度数据录入符号.png"
@@ -893,11 +881,12 @@
     },
     "点击维度数据录入符号（调入）": {
         "recognition": "TemplateMatch",
-        "roi": [
-            979,
-            596,
-            96,
-            25
+        "roi": "点击调入仓位列",
+        "roi_offset": [
+            -19,
+            21,
+            43,
+            18
         ],
         "template": [
             "维度数据录入符号.png"
@@ -1163,9 +1152,6 @@
         "rate_limit": 0,
         "next": [
             "点击调出仓库列"
-        ],
-        "on_error": [
-            "[JumpBack]右移一格（找调入仓位）"
         ]
     },
     "确认数量已粘贴": {
@@ -1182,10 +1168,15 @@
         ],
         "inverse": true,
         "pre_delay": 0,
+        "post_wait_freezes": 500,
         "post_delay": 0,
+        "timeout": 950,
         "rate_limit": 0,
         "next": [
             "确认四列可见"
+        ],
+        "on_error": [
+            "[JumpBack]右移一格（找调入仓位）"
         ]
     },
     "确认新增单据打开": {
@@ -1461,7 +1452,8 @@
         "post_delay": 0,
         "rate_limit": 0,
         "next": [
-            "点击主菜单"
+            "[JumpBack]UpKingdeeToTheFront",
+            "搜索直接调拨单"
         ]
     },
     "读取单据": {
