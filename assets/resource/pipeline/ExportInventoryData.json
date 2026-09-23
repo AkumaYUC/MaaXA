@@ -9,7 +9,10 @@
         ],
         "post_wait_freezes": 1200,
         "post_delay": 0,
-        "rate_limit": 0
+        "rate_limit": 0,
+        "next": [
+            "ExportInventoryDataClickFilter"
+        ]
     },
     "ExportInventoryDataEntry": {
         "desc": "导出即时库存数据的入口",
@@ -44,5 +47,65 @@
         "next": [
             "ExportInventoryDataConfirmSearch"
         ]
+    },
+    "ExportInventoryDataClickFilter": {
+        "recognition": "OCR",
+        "roi": [
+            14,
+            79,
+            52,
+            28
+        ],
+        "expected": [
+            "过滤"
+        ],
+        "pre_wait_freezes": 800,
+        "pre_delay": 0,
+        "action": "Custom",
+        "custom_action": "RepeatUntilFoundAction",
+        "custom_action_param": {
+            "action": "Click",
+            "interval_ms": 3000,
+            "repeat_count": 3,
+            "wait_nodes": [
+                "ExportInventoryDataConfirmFilter"
+            ]
+        },
+        "target": [
+            26,
+            86,
+            27,
+            15
+        ],
+        "target_offset": [
+            9,
+            5,
+            -19,
+            -12
+        ],
+        "post_wait_freezes": 1200,
+        "post_delay": 0,
+        "rate_limit": 0,
+        "next": [
+            "ExportInventoryDataConfirmFilter"
+        ],
+        "on_error": [
+            "ExportInventoryDataClickFilter"
+        ]
+    },
+    "ExportInventoryDataConfirmFilter": {
+        "recognition": "OCR",
+        "roi": [
+            172,
+            100,
+            874,
+            131
+        ],
+        "expected": [
+            "显示隐藏列"
+        ],
+        "pre_delay": 0,
+        "post_delay": 0,
+        "rate_limit": 0
     }
 }

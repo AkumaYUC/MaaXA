@@ -1,10 +1,32 @@
 {
-    "直接调拨单任务入口": {
+    "判定是否跳过调出仓位": {
+        "recognition": "Custom",
+        "custom_recognition": "OrderColumnEmpty",
+        "custom_recognition_param": {
+            "column": "source_locations"
+        },
+        "pre_wait_freezes": 0,
         "pre_delay": 0,
+        "post_wait_freezes": 0,
         "post_delay": 0,
         "rate_limit": 0,
         "next": [
-            "读取Excel数据"
+            "点击调入仓库列"
+        ]
+    },
+    "判定是否跳过调入仓位": {
+        "recognition": "Custom",
+        "custom_recognition": "OrderColumnEmpty",
+        "custom_recognition_param": {
+            "column": "target_locations"
+        },
+        "pre_wait_freezes": 0,
+        "pre_delay": 0,
+        "post_wait_freezes": 0,
+        "post_delay": 0,
+        "rate_limit": 0,
+        "next": [
+            "点击提交"
         ]
     },
     "上拉置顶(ctrl+home)": {
@@ -562,6 +584,7 @@
         "post_delay": 0,
         "rate_limit": 0,
         "next": [
+            "判定是否跳过调入仓位",
             "复制调入仓位"
         ]
     },
@@ -614,6 +637,7 @@
         "post_delay": 0,
         "rate_limit": 0,
         "next": [
+            "判定是否跳过调出仓位",
             "复制调出仓位"
         ]
     },
@@ -1498,6 +1522,14 @@
         "rate_limit": 0,
         "next": [
             "点击新增行"
+        ]
+    },
+    "直接调拨单任务入口": {
+        "pre_delay": 0,
+        "post_delay": 0,
+        "rate_limit": 0,
+        "next": [
+            "读取Excel数据"
         ]
     }
 }

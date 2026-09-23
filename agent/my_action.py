@@ -7,6 +7,8 @@ from maa.agent.agent_server import AgentServer
 from maa.custom_action import CustomAction
 from maa.context import Context
 
+from common import _params  #pipeline 参数解析兜底（写坏打日志返回False，不在agent进程里抛异常）
+
 
 @AgentServer.custom_action("Win32BringToFront")  #将指定窗口置顶
 class Win32BringToFront(CustomAction):
@@ -17,7 +19,10 @@ class Win32BringToFront(CustomAction):
         argv: CustomAction.RunArg,
     ) -> bool:
 
-        pattern = json.loads(argv.custom_action_param or "{}").get("window_regex", "")  #拉取命令
+        param = _params(argv)  #拉取参数；参数写坏打日志返回False，不在agent进程里抛异常
+        if param is None:
+            return False
+        pattern = param.get("window_regex", "")  #要匹配的窗口标题正则
         if not pattern:
             return False  #没配置window_regex参数，直接返回False
 

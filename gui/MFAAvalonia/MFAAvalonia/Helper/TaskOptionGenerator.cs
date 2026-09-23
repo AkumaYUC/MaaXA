@@ -589,6 +589,12 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
         //再往下是副本保留期：定期清理归档目录里的旧副本
         container.Children.Add(CreateArchiveRetentionRow());
 
+        //最后一行：下载空白模版。只有 option 配了 template 才渲染，没配的任务不受影响
+        if (CreateTemplateDownloadRow(interfaceOption) is { } templateRow)
+        {
+            container.Children.Add(templateRow);
+        }
+
         return container;
 
         void ApplyDroppedFile(string path, Border border)
@@ -763,6 +769,76 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
         container.Children.Add(comboRow);
         container.Children.Add(daysRow);
         return container;
+    }
+
+    /// <summary>
+    /// 模版下载（挂在副本保留期下方）。仅当 option 配了 template 时渲染，返回 null 表示不显示这一行。
+    /// 源文件取自随包发布的资源目录（AppPaths.ResourceDirectory 下），点击后弹「另存为」让用户自己挑位置，
+    /// 不直接往桌面或归档目录写——避免静默覆盖用户已有文件。
+    /// </summary>
+    private Control? CreateTemplateDownloadRow(MaaInterface.MaaInterfaceOption interfaceOption)
+    {
+        var relativePath = interfaceOption.Template;
+        if (string.IsNullOrWhiteSpace(relativePath)) return null;
+
+        var sourcePath = System.IO.Path.Combine(
+            AppPaths.ResourceDirectory,
+            relativePath.Replace('/', System.IO.Path.DirectorySeparatorChar));
+
+        var btn = new Button
+        {
+            Content = "下载模版",
+            Width = 255,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+        };
+        ToolTip.SetTip(btn, "把空白表格另存到你电脑上，照表头填好再拖回上面的虚线框");
+
+        btn.Click += async (_, _) =>
+        {
+            if (!System.IO.File.Exists(sourcePath))
+            {
+                ToastHelper.Error("模版文件缺失", $"没找到 {sourcePath}，请重新安装本程序");
+                return;
+            }
+
+            var topLevel = TopLevel.GetTopLevel(btn);
+            if (topLevel?.StorageProvider == null) return;
+
+            var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = "保存模版",
+                SuggestedFileName = System.IO.Path.GetFileName(sourcePath),
+                DefaultExtension = "xlsx",
+                SuggestedStartLocation = await topLevel.StorageProvider.TryGetWellKnownFolderAsync(WellKnownFolder.Desktop),
+                FileTypeChoices = new List<FilePickerFileType>
+                {
+                    new("Excel") { Patterns = new List<string> { "*.xlsx" } },
+                },
+            });
+
+            if (file?.TryGetLocalPath() is not { } targetPath) return;  //用户取消
+
+            try
+            {
+                System.IO.File.Copy(sourcePath, targetPath, overwrite: true);
+                ToastHelper.Info("模版已保存", targetPath);
+            }
+            catch (Exception e)
+            {
+                ToastHelper.Error("模版保存失败", e.Message);
+            }
+        };
+
+        var row = new DockPanel { Margin = new Thickness(0, 6, 0, 0) };
+        DockPanel.SetDock(btn, Dock.Right);
+        row.Children.Add(btn);
+        row.Children.Add(new TextBlock
+        {
+            Text = "模版下载",
+            FontSize = 14,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        return row;
     }
 
     private Control CreateHotkeyControl(MaaInterface.MaaInterfaceSelectOption option, MaaInterface.MaaInterfaceOption interfaceOption)

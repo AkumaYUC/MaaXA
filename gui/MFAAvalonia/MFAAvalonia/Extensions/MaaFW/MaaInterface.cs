@@ -213,6 +213,13 @@ public partial class MaaInterface
         [JsonProperty("hotkeys")]
         public List<MaaInterfaceOptionHotkey>? Hotkeys { get; set; }
 
+        /// <summary>
+        /// file 类型可选：空白表格模版路径，相对资源目录（如 "template/直接调拨单模版.xlsx"）。
+        /// 配了就在拖放区下方多渲染一行「下载模版」，点了把该文件另存到用户选的位置。
+        /// </summary>
+        [JsonProperty("template")]
+        public string? Template { get; set; }
+
         /// <summary>input 类型的管道覆盖配置（支持 {名称} 变量替换）</summary>
         [JsonProperty("pipeline_override")]
         public Dictionary<string, Dictionary<string, JToken>>? PipelineOverride { get; set; }

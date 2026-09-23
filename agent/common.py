@@ -20,16 +20,24 @@ _DEFAULT_REPEAT = 3
 _DEFAULT_INTERVAL = 3000
 
 
-def _load_param(argv):
+def _params(argv, attr="custom_action_param", tag="agent"):
+    #把 pipeline 传来的 JSON 参数解析成 dict。参数是人手写的，写坏了在这里兜住：
+    #打日志 + 返回 None，让调用方返回 False / 不命中 走 on_error，不要在 agent 进程里抛异常。
+    #三个模块（common / my_action / transfer_actions）共用这一份，别再各写各的 json.loads
+    raw = getattr(argv, attr, None) or "{}"
     try:
-        param = json.loads(argv.custom_action_param or "{}")
+        param = json.loads(raw)
     except (TypeError, json.JSONDecodeError) as e:
-        print(f"[RepeatUntil] 参数不是有效JSON: {e}")
+        print(f"[{tag}] 参数不是有效JSON: {e}")
         return None
     if not isinstance(param, dict):
-        print("[RepeatUntil] 参数必须是JSON对象")
+        print(f"[{tag}] 参数必须是JSON对象")
         return None
     return param
+
+
+def _load_param(argv):
+    return _params(argv, "custom_action_param", tag="RepeatUntil")
 
 
 def _build_action(param):

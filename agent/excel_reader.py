@@ -40,6 +40,11 @@ def _build_order(index, items):
         if item.target_org and item.target_org != target_org:
             raise ExcelFormatError(f"第 {item.row_index} 行：调入库存组织「{item.target_org}」与首行「{target_org}」不一致，一张单只能有一个调入库存组织")
 
+    if not first.source_warehouse:
+        raise ExcelFormatError(f"第 {first.row_index} 行：调出仓库为空，每张单的首行必须填")
+    if not first.target_warehouse:
+        raise ExcelFormatError(f"第 {first.row_index} 行：调入仓库为空，每张单的首行必须填")
+
     remark = next((it.remark for it in items if it.remark), "")  #取整单第一个非空备注
     transfer_type = "组织内调拨" if source_org == target_org else "跨组织调拨"  #这两个值必须与金蝶「调拨类型」下拉项一字不差，文案有变时这里和管道都要同步改
     return TransferOrder(
@@ -136,18 +141,7 @@ def read_orders(file_path):
                 current = []
             continue
 
-        item = OrderItem(
-            material_code=values["material_code"],
-            quantity=values["quantity"],
-            source_warehouse=values["source_warehouse"],
-            source_location=values["source_location"],
-            target_warehouse=values["target_warehouse"],
-            target_location=values["target_location"],
-            source_org=values["source_org"],
-            target_org=values["target_org"],
-            remark=values["remark"],
-            row_index=row_no,
-        )
+        item = OrderItem(**values, row_index=row_no)  #values 的键就是 OrderItem 的字段名（见 COLUMNS），整包递过去
 
         #逐行校验，报错带Excel行号，方便对着表改
         if not item.material_code:
