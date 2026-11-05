@@ -1,50 +1,33 @@
 {
     "TransferOrderPasteErrorClose": {
-        "desc": "确认粘贴错误窗口已关闭",
-        "recognition": "TemplateMatch",
-        "roi": "TransferOrderPasteErrorEntry",
-        "template": "粘贴异常.png",
+        "desc": "粘贴异常处理的关闭",
+        "recognition": "Custom",
+        "custom_recognition": "ErrorPopupOpen",
         "inverse": true,
-        "pre_wait_freezes": 800,
-        "pre_delay": 0,
-        "post_delay": 0,
-        "rate_limit": 0
+        "pre_wait_freezes": 800
     },
     "TransferOrderPasteErrorEntry": {
-        "desc": "识别粘贴错误窗口的入口",
-        "recognition": "TemplateMatch",
-        "roi": [
-            317,
-            196,
-            505,
-            253
-        ],
-        "template": "粘贴异常.png",
+        "desc": "粘贴异常处理的入口",
+        "recognition": "Custom",
+        "custom_recognition": "ErrorPopupOpen",
         "pre_wait_freezes": 800,
-        "pre_delay": 0,
-        "post_delay": 0,
-        "rate_limit": 0,
         "next": [
             "TransferOrderPasteErrorOK"
         ]
     },
     "TransferOrderPasteErrorOK": {
-        "desc": "识别粘贴错误窗口的确定按钮",
-        "recognition": "OCR",
-        "roi": "TransferOrderPasteErrorEntry",
-        "expected": [
-            "确定"
-        ],
-        "pre_delay": 0,
-        "action": "Click",
+        "desc": "粘贴异常处理的确认",
+        "action": "Custom",
+        "custom_action": "PopupKeys",
+        "custom_action_param": {
+            "key": [
+                13
+            ],
+            "window": "错误提示"
+        },
         "post_wait_freezes": 800,
-        "post_delay": 0,
-        "rate_limit": 0,
         "next": [
             "TransferOrderPasteErrorClose"
-        ],
-        "on_error": [
-            "TransferOrderPasteErrorOK"
         ]
     }
 }
