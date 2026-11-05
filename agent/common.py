@@ -24,7 +24,12 @@ def _params(argv, attr="custom_action_param", tag="agent"):
     #把 pipeline 传来的 JSON 参数解析成 dict。参数是人手写的，写坏了在这里兜住：
     #打日志 + 返回 None，让调用方返回 False / 不命中 走 on_error，不要在 agent 进程里抛异常。
     #三个模块（common / my_action / transfer_actions）共用这一份，别再各写各的 json.loads
-    raw = getattr(argv, attr, None) or "{}"
+    raw = getattr(argv, attr, None)
+    #节点里不写参数时，框架传下来的既不是 None 也不是 "{}"，而是字符串 "null"。
+    #它是个 truthy 字符串，兜不进默认值，json.loads 完变成 None，就会被下面判成"参数写坏"，
+    #于是所有故意不写参数的识别节点全部静默不命中（ErrorPopupOpen 第一版就是这么废的）。
+    if raw is None or (isinstance(raw, str) and raw.strip() in ("", "null")):
+        raw = "{}"
     try:
         param = json.loads(raw)
     except (TypeError, json.JSONDecodeError) as e:
