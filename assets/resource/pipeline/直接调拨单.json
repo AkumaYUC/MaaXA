@@ -1,19 +1,15 @@
 {
-    "判定是否跳过调出仓位": {
-        "recognition": "Custom",
-        "custom_recognition": "OrderColumnEmpty",
-        "custom_recognition_param": {
-            "column": "source_locations"
-        },
-        "pre_wait_freezes": 0,
+    "上拉置顶(ctrl+home)": {
         "pre_delay": 0,
-        "post_wait_freezes": 0,
+        "action": "Custom",
+        "custom_action": "PressCtrlHome",
         "post_delay": 0,
         "rate_limit": 0,
         "next": [
-            "点击调入仓库列"
+            "复制调拨数量"
         ]
     },
+    "全部单据已处理完成": {},
     "判定是否跳过调入仓位": {
         "recognition": "Custom",
         "custom_recognition": "OrderColumnEmpty",
@@ -29,17 +25,21 @@
             "点击提交"
         ]
     },
-    "上拉置顶(ctrl+home)": {
+    "判定是否跳过调出仓位": {
+        "recognition": "Custom",
+        "custom_recognition": "OrderColumnEmpty",
+        "custom_recognition_param": {
+            "column": "source_locations"
+        },
+        "pre_wait_freezes": 0,
         "pre_delay": 0,
-        "action": "Custom",
-        "custom_action": "PressCtrlHome",
+        "post_wait_freezes": 0,
         "post_delay": 0,
         "rate_limit": 0,
         "next": [
-            "复制调拨数量"
+            "点击调入仓库列"
         ]
     },
-    "全部单据已处理完成": {},
     "单物料补回车确认": {
         "recognition": "Custom",
         "custom_recognition": "OrderRowCount",
@@ -950,6 +950,9 @@
         "rate_limit": 0,
         "next": [
             "点击维度数据录入符号（调入）"
+        ],
+        "on_error": [
+            "点击调入仓位列"
         ]
     },
     "点击调入仓库列": {
@@ -1132,6 +1135,14 @@
         "rate_limit": 0,
         "next": [
             "粘贴调拨类型"
+        ]
+    },
+    "直接调拨单任务入口": {
+        "pre_delay": 0,
+        "post_delay": 0,
+        "rate_limit": 0,
+        "next": [
+            "读取Excel数据"
         ]
     },
     "确认切换组织": {
@@ -1318,8 +1329,12 @@
     },
     "确认调入仓库已输入": {
         "recognition": "OCR",
-        "roi": "点击调入仓库列",
-        "roi_offset": [2, 34, -4, -10],
+        "roi": [
+            887,
+            598,
+            91,
+            20
+        ],
         "expected": [
             "仓"
         ],
@@ -1443,6 +1458,22 @@
             "回车确认（调出库存组织）"
         ]
     },
+    "粘贴调拨类型": {
+        "pre_delay": 0,
+        "action": "Custom",
+        "custom_action": "PasteOrderField",
+        "custom_action_param": {
+            "field": "transfer_type",
+            "select_all": true
+        },
+        "post_wait_freezes": 1000,
+        "post_delay": 0,
+        "rate_limit": 0,
+        "next": [
+            "[JumpBack]TransferOrderPasteErrorEntry",
+            "回车确认（调拨类型）"
+        ]
+    },
     "识别物料是否粘贴成功": {
         "recognition": "OCR",
         "roi": [
@@ -1490,22 +1521,6 @@
             "全部单据已处理完成"
         ]
     },
-    "粘贴调拨类型": {
-        "pre_delay": 0,
-        "action": "Custom",
-        "custom_action": "PasteOrderField",
-        "custom_action_param": {
-            "field": "transfer_type",
-            "select_all": true
-        },
-        "post_wait_freezes": 1000,
-        "post_delay": 0,
-        "rate_limit": 0,
-        "next": [
-            "[JumpBack]TransferOrderPasteErrorEntry",
-            "回车确认（调拨类型）"
-        ]
-    },
     "输入备注": {
         "pre_delay": 0,
         "action": "Custom",
@@ -1518,14 +1533,6 @@
         "rate_limit": 0,
         "next": [
             "点击新增行"
-        ]
-    },
-    "直接调拨单任务入口": {
-        "pre_delay": 0,
-        "post_delay": 0,
-        "rate_limit": 0,
-        "next": [
-            "读取Excel数据"
         ]
     }
 }
