@@ -30,6 +30,12 @@
 #                     独立顶层弹窗必须用这个动作发按键：框架每次抓图都会把金蝶主窗口拉回前台，
 #                     抢焦点和发按键之间隔一个pipeline节点焦点就丢了，键会打到主窗口上去
 #                     找不到窗口返回False（不乱发按键），让pipeline走on_error重来
+#  RePasteLast        param: 无  把"最近一次由agent发出的粘贴"原样补粘一次（弹窗吃掉粘贴之后用）
+#                     配法：粘贴异常处理链的最后一环 —— 关闭校验节点命中之后接它，它不写next，
+#                     跑完自动[JumpBack]回父节点，父节点重评next时弹窗已没，流程照常往下走
+#                     同一次粘贴只补粘一次：第二次进来直接返回True不再按键，所以不会和弹窗打成死循环
+#                     只复制不粘贴（method=clipboard_only，右键粘贴路径）的那次也记：右键粘的就是这份剪贴板，
+#                     补粘统一用Ctrl+V重放；粘没粘上仍由pipeline的校验节点判
 #自定义识别（节点recognition填Custom、custom_recognition填名字；和上面的动作是两个互不相干的槽）：
 #自定义识别（节点recognition填Custom、custom_recognition填名字；和上面的动作是两个互不相干的槽）：
 #  OrderRowCount      param: {"equal": 1}  当前单的物料行数等于equal时命中，否则不命中
@@ -60,6 +66,7 @@ from common import _params  #pipeline 参数解析兜底（写坏打日志返回
 #agent是独立进程，下面的模块级变量在同一进程的所有Action之间共享，用来记单据队列
 _orders = []  #解析后的单据队列
 _current = -1  #当前单据下标，-1 = 还没开始取
+_last_paste = {"text": None, "label": "", "select_all": False, "replayed": False}  #最近一次由agent发出的粘贴，RePasteLast补粘用
 
 #PasteOrderColumn的column参数 → OrderItem字段名
 _COLUMN_FIELDS = {
@@ -106,6 +113,21 @@ def _column_lines(order, column, first_only=True):
     return lines, field
 
 
+def _set_clipboard(text, label, select_all=False, replayed=False):
+    #把 text 写进剪贴板，同时记下"最近一次粘贴"，弹窗吃掉这次粘贴时由 RePasteLast 原样补粘
+    #select_all：粘贴前先Ctrl+A覆盖框里原有文字（输入框类字段用）
+    #clipboard_only（只复制、真粘贴由pipeline右键完成）也照样记 —— 右键粘的就是这份剪贴板，
+    #补粘时用Ctrl+V重放它；粘没粘上仍然由pipeline的校验节点判
+    #replayed：RePasteLast 补粘时传True，把"这次粘贴已补过"的标记留住，免得它自己把自己重置成没补过
+    if select_all:
+        _ctrl_a()
+    pyperclip.copy(text)
+    _last_paste["text"] = text
+    _last_paste["label"] = label
+    _last_paste["select_all"] = bool(select_all)
+    _last_paste["replayed"] = replayed
+
+
 @AgentServer.custom_action("PasteText")  #粘贴固定文本（pipeline调用）
 class PasteText(CustomAction):
     def run(self, context, argv):
@@ -115,8 +137,7 @@ class PasteText(CustomAction):
         text = param.get("text", "")
         if not text:
             return False
-        _ctrl_a()  #搜索框可能有残留文字，先全选覆盖
-        pyperclip.copy(text)
+        _set_clipboard(text, "PasteText", select_all=True)  #搜索框可能有残留文字，先全选覆盖
         _ctrl_v()
         return True
 
@@ -144,9 +165,7 @@ class PasteOrderField(CustomAction):
             return False  #field拼错了
 
         value = getattr(order, field)  #取当前单这一字段的值
-        if param.get("select_all"):  #输入框默认有文字时先全选，粘贴直接覆盖
-            _ctrl_a()
-        pyperclip.copy(value)
+        _set_clipboard(value, f"PasteOrderField:{field}", select_all=bool(param.get("select_all")))  #输入框默认有文字时先全选，粘贴直接覆盖
         _ctrl_v()
         print(f"[PasteOrderField] 已粘贴{field}: {value!r}")
         return True  #粘贴成功
@@ -287,9 +306,9 @@ class PasteOrderColumn(CustomAction):
         if not any(lines):  #整列为空（first_only时只看第一个物料那行），跳过粘贴
             print(f"[PasteOrderColumn] {column}整列为空，跳过粘贴")
             return True  #此列无数据，无需粘贴
-        pyperclip.copy("\r\n".join(lines))  #用CRLF拼接，和Excel复制出来的格式一致（金蝶块粘贴只认CRLF切行）
-
         method = param.get("method", "ctrl_v")
+        #用CRLF拼接，和Excel复制出来的格式一致（金蝶块粘贴只认CRLF切行）
+        _set_clipboard("\r\n".join(lines), f"PasteOrderColumn:{column}")
         if method == "clipboard_only":
             print(f"[PasteOrderColumn] 已复制{column}到剪贴板: {len(lines)}行（等待右键粘贴）")
             return True  #只复制不粘贴，pipeline侧负责右键+点粘贴
@@ -302,6 +321,28 @@ class PasteOrderColumn(CustomAction):
         _ctrl_v()
         print(f"[PasteOrderColumn] 已粘贴{column}: {len(lines)}行")
         return True  #粘贴成功
+
+
+@AgentServer.custom_action("RePasteLast")  #弹窗吃掉粘贴之后，把最近一次粘贴原样补粘一次
+class RePasteLast(CustomAction):
+
+    def run(
+        self,
+        context: Context,
+        argv: CustomAction.RunArg,
+    ) -> bool:
+
+        if not _last_paste["text"]:
+            print("[RePasteLast] 没有可补粘的记录（这个进程还没粘过东西），跳过")
+            return True  #没记录就别拦流程，让pipeline照常往下走
+        if _last_paste["replayed"]:
+            print(f"[RePasteLast] {_last_paste['label']} 已经补粘过一次，不再重复")
+            return True  #补粘又被弹窗吃了就交给pipeline的校验节点判失败，别在这死循环
+        _set_clipboard(_last_paste["text"], _last_paste["label"],
+                       select_all=_last_paste["select_all"], replayed=True)
+        _ctrl_v()
+        print(f"[RePasteLast] 已补粘 {_last_paste['label']}")
+        return True  #按键已发出，粘没粘上交给pipeline的校验节点判
 
 
 @AgentServer.custom_action("PressCtrlHome")  #发送Ctrl+Home，把表格光标移回首行（pipeline置顶节点调用）

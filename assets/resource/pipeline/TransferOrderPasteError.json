@@ -4,7 +4,8 @@
         "recognition": "Custom",
         "custom_recognition": "ErrorPopupOpen",
         "inverse": true,
-        "pre_wait_freezes": 800
+        "pre_wait_freezes": 800,
+        "next":["TransferOrderPasteErrorRePaste"]
     },
     "TransferOrderPasteErrorEntry": {
         "desc": "粘贴异常处理的入口",
@@ -29,5 +30,11 @@
         "next": [
             "TransferOrderPasteErrorClose"
         ]
+    },
+    "TransferOrderPasteErrorRePaste":{
+        "desc":"粘贴异常处理的补粘",
+        "action":"Custom",
+        "custom_action": "RePasteLast",
+        "post_wait_freezes": 800
     }
 }
