@@ -89,6 +89,13 @@
             ]
         },
         {
+            "name": "调拨申请单",
+            "entry": "TransferRequisitionFormEntry",
+            "option": [
+                "调拨申请单文件"
+            ]
+        },
+        {
             "name":"即时库存导出",
             "entry":"ExportInventoryDataEntry"
         }
@@ -110,6 +117,24 @@
             "pipeline_override": {
                 "读取Excel数据": {
                     "custom_action_param": { "path": "{单据文件}" }
+                }
+            }
+        },
+        "调拨申请单文件": {
+            "type": "file",
+            "label": "调拨申请单文件",
+            "description": "拖入 Excel 调拨申请单，任务全部成功后自动归档副本。表格格式：物料编码、调出组织、调出仓库、调出仓位、调入组织、调入仓库、调入仓位、数量、申请组织、调拨类型、申请人、联系电话、通讯地址、联系人、需求日期（当天）。调出组织、调入组织、申请组织、调拨类型、申请人填在整单第一行；调拨类型只能填「组织内调拨」或「跨组织调拨」；需求日期留空按当天填。",
+            "inputs": [
+                {
+                    "name": "调拨申请单文件",
+                    "label": "拖拽 Excel 文件到此，或点击浏览选择文件",
+                    "description": "浏览",
+                    "pipeline_type": "string"
+                }
+            ],
+            "pipeline_override": {
+                "TransferRequisitionFormReadExcel": {
+                    "custom_action_param": { "path": "{调拨申请单文件}", "template": "requisition" }
                 }
             }
         }

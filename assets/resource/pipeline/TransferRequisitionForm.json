@@ -1,0 +1,213 @@
+{
+    "TransferRequisitionFormConfirmSwitchType": {
+        "pre_delay": 0,
+        "action": "ClickKey",
+        "key": [
+            13
+        ],
+        "post_wait_freezes": 1200,
+        "post_delay": 0,
+        "rate_limit": 0
+    },
+    "TransferRequisitionFormNextOrder": {
+        "pre_delay": 0,
+        "action": "Custom",
+        "custom_action": "NextOrder",
+        "post_delay": 0,
+        "rate_limit": 0,
+        "next": [
+            "TransferRequisitionFormClickApplyOrg"
+        ]
+    },
+    "TransferRequisitionFormApplyOrgConfirm": {
+        "desc": "回车确认申请组织粘贴",
+        "pre_wait_freezes": 800,
+        "pre_delay": 0,
+        "action": "ClickKey",
+        "key": [
+            13
+        ],
+        "post_wait_freezes": 1200,
+        "post_delay": 0,
+        "rate_limit": 0,
+        "next": [
+            "TransferRequisitionFormConfirmSwitchOrg",
+            "TransferRequisitionFormClickSwitchType"
+        ],
+        "on_error": [
+            "TransferRequisitionFormClickApplyOrg"
+        ]
+    },
+    "TransferRequisitionFormClickApplyOrg": {
+        "desc": "点击申请组织",
+        "recognition": "OCR",
+        "roi": [
+            283,
+            116,
+            358,
+            229
+        ],
+        "expected": [
+            "申请组织"
+        ],
+        "pre_delay": 0,
+        "action": "Click",
+        "target_offset": [
+            121,
+            8,
+            -9,
+            -9
+        ],
+        "post_delay": 0,
+        "rate_limit": 0,
+        "next": [
+            "TransferRequisitionFormPasteApplyOrg"
+        ]
+    },
+    "TransferRequisitionFormClickSwitchType": {
+        "desc": "点击调拨类型",
+        "recognition": "OCR",
+        "roi": [
+            320,
+            137,
+            323,
+            201
+        ],
+        "expected": [
+            "调拨类型"
+        ],
+        "pre_delay": 500,
+        "action": "Click",
+        "target_offset": [
+            60,
+            2,
+            -10,
+            -8
+        ],
+        "post_delay": 0,
+        "rate_limit": 0,
+        "next": [
+            "TransferRequisitionFormPasteSwitchType"
+        ]
+    },
+    "TransferRequisitionFormConfirmSwitchOrg": {
+        "desc": "确认切换组织",
+        "recognition": "OCR",
+        "roi": [
+            4,
+            132,
+            238,
+            66
+        ],
+        "expected": [
+            "确定"
+        ],
+        "pre_delay": 0,
+        "action": "ClickKey",
+        "key": [
+            13
+        ],
+        "post_wait_freezes": 1500,
+        "post_delay": 0,
+        "rate_limit": 0,
+        "next": [
+            "TransferRequisitionFormClickSwitchType"
+        ]
+    },
+    "TransferRequisitionFormEntry": {
+        "desc": "调拨申请单任务入口",
+        "pre_delay": 0,
+        "post_delay": 0,
+        "rate_limit": 0,
+        "next": [
+            "TransferRequisitionFormReadExcel"
+        ]
+    },
+    "TransferRequisitionFormPasteApplyOrg": {
+        "desc": "粘贴申请组织字段",
+        "pre_delay": 0,
+        "action": "Custom",
+        "custom_action": "PasteOrderField",
+        "custom_action_param": {
+            "field": "apply_org",
+            "select_all": true
+        },
+        "post_wait_freezes": 1200,
+        "post_delay": 0,
+        "rate_limit": 0,
+        "next": [
+            "TransferRequisitionFormApplyOrgConfirm"
+        ]
+    },
+    "TransferRequisitionFormPasteSwitchType": {
+        "desc": "粘贴调拨类型字段",
+        "pre_delay": 0,
+        "action": "Custom",
+        "custom_action": "PasteOrderField",
+        "custom_action_param": {
+            "field": "transfer_type",
+            "select_all": true
+        },
+        "post_wait_freezes": 1200,
+        "post_delay": 0,
+        "rate_limit": 0,
+        "next": [
+            "TransferRequisitionFormConfirmSwitchType"
+        ]
+    },
+    "TransferRequisitionFormReadExcel": {
+        "desc": "读取Excel文件",
+        "pre_delay": 0,
+        "action": "Custom",
+        "custom_action": "ReadTransferExcel",
+        "custom_action_param": {
+            "path": "",
+            "template": "requisition"
+        },
+        "post_delay": 0,
+        "rate_limit": 0,
+        "next": [
+            "[JumpBack]UpKingdeeToTheFront",
+            "TransferRequisitionFormSearch"
+        ]
+    },
+    "TransferRequisitionFormSearch": {
+        "desc": "搜索调拨申请单",
+        "recognition": "OCR",
+        "roi": [
+            510,
+            5,
+            336,
+            38
+        ],
+        "expected": [
+            "应用菜单"
+        ],
+        "pre_delay": 0,
+        "action": "Custom",
+        "custom_action": "PasteText",
+        "custom_action_param": {
+            "text": "调拨申请单"
+        },
+        "post_delay": 0,
+        "rate_limit": 0,
+        "next": [
+            "TransferRequisitionFormSearchConfirm"
+        ]
+    },
+    "TransferRequisitionFormSearchConfirm": {
+        "desc": "回车确认搜索",
+        "pre_wait_freezes": 800,
+        "pre_delay": 0,
+        "action": "ClickKey",
+        "key": [
+            13
+        ],
+        "post_wait_freezes": 1200,
+        "post_delay": 0,
+        "rate_limit": 0,
+        "next": [
+            "TransferRequisitionFormNextOrder"
+        ]
+    }
+}

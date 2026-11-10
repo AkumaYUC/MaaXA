@@ -1,7 +1,9 @@
 #调拨单填写自定义动作
 #pipeline侧接口约定（节点action都填Custom，custom_action填下面的动作名）：
-#  ReadTransferExcel  param: {"path": "D:/xxx/调拨单.xlsx"}  读Excel建单据队列，放流程最开头
+#  ReadTransferExcel  param: {"path": "D:/xxx/调拨单.xlsx", "template": "transfer"}  读Excel建单据队列，放流程最开头
 #                     path是单据文件路径，GUI拖拽单据时由interface.json的option传进来（调试也可直接写死）
+#                     template选Excel模板：transfer直接调拨单 / requisition调拨申请单；省略=transfer（旧管道照跑）
+#                     两套模板的表头列名不同，但解析出的字段名共用，所以下面所有粘贴动作对两种单据都通用
 #                     单据里每个要填的值（含库存组织）都由填表人写进Excel，agent原样透传、不做任何转换，
 #                     所以代码侧不含任何公司专有数据 —— 换一家公司只用改Excel，不用改代码
 #                     文件归档由GUI在任务全部成功后负责（复制副本进归档目录），agent这边不碰文件
@@ -9,6 +11,8 @@
 #  PasteOrderField    param: {"field": "source_org", "select_all": true}  当前单单头字段 → 剪贴板 → Ctrl+V粘贴到焦点输入框
 #                     select_all为true时先Ctrl+A全选，粘贴直接覆盖输入框里原有的文字
 #field可选值：source_org调出库存组织 / target_org调入库存组织 / transfer_type调拨类型 / remark备注
+#            apply_org申请组织 / applicant申请人 / phone联系电话 / address通讯地址 / contact联系人 / demand_date需求日期
+#            （后六个只有调拨申请单的Excel模板有列，直接调拨单读到的是空串）
 #  PasteOrderColumn   param: {"column": "material_codes", "method": "ctrl_v"}  当前单指定列拼成多行文本 → 剪贴板 → 粘贴
 #                     前置pipeline节点必须已把光标点在目标列第一个单元格，金蝶收到多行粘贴会自动扩展行
 #                     method可选: "ctrl_v"(默认)Ctrl+V粘贴 / "clipboard_only"只复制到剪贴板不粘贴（配合pipeline右键粘贴）
@@ -17,6 +21,7 @@
 #                     框架每次抓图都会把金蝶主窗口拉回前台，焦点得在发Ctrl+V前抢回来，否则粘到主窗口表格里）
 #column可选值：material_codes物料编码 / quantities数量 / source_warehouses调出仓库 / source_locations调出仓位
 #             target_warehouses调入仓库 / target_locations调入仓位
+#             source_orgs调出组织 / target_orgs调入组织（只有调拨申请单的明细里有这两列，且是必填）
 #  PasteText          param: {"text": "直接调拨单列表"}  固定文本 → 剪贴板 → Ctrl+A全选后Ctrl+V覆盖粘贴（搜索框用）
 #  PressCtrlHome      param: 无  发送Ctrl+Home，把表格光标移回首行首列（物料行数多时用来置顶）
 #                     只发按键不点鼠标，焦点必须已经在表格里，前一个节点不能是点按钮之类会抢焦点的动作
@@ -43,11 +48,24 @@
 #                     不像弹窗判据那样有"还没渲染出来就被兜底候选抢跑"的时序竞态，
 #                     可以放心和兜底候选写在同一个next列表里（本命中在前、兜底在后）
 #                     命中时返回占位框(0,0,1,1)，只配ClickKey这类不需要目标的动作，别配Click+target
+#  OrderRemaining     param: 无  队列里还有没填的单据时命中（当前单之后的都算没填）
+#                     用途是防漏录：调拨申请单现在的收尾停在「字段填完」，没有提交回环，
+#                     一张Excel里有多张单时只填了第一张就会结束 —— 任务判成功、GUI 就把整份
+#                     Excel 归档掉，剩下的单从没进过ERP却再也想不起来要录，比重复录入更隐蔽。
+#                     所以收尾节点配 inverse:true：还有单 → 不命中 → 节点超时 → 任务变红不归档
+#                     接上提交回环之后这个护栏要撤掉（改成 next 里回取单节点，inverse 去掉）
+#                     命中返回占位框(0,0,1,1)，只配分流用
 #  OrderColumnEmpty   param: {"column": "source_locations"}  当前单该列整列为空时命中（跳过填写），有值不命中
 #                     只认首个物料那行：仓库/仓位整单一致，填表人只写在第一个物料上，其余行留空是正常填法，
 #                     所以"整列空不空"看第一行就够了 —— 看第一行以外会把"填对了"误判成"空"(踩坑清单同款误区)
 #                     column可选：source_locations调出仓位 / target_locations调入仓位（仓库同理也可用）
 #                     命中返回占位框(0,0,1,1)，配法：next=["跳过仓位节点","正常填写入口"]，本命中在前
+#  OrderFieldEmpty    param: {"field": "phone"}  当前单这个单头字段为空时命中（跳过填写），有值不命中
+#                     和 OrderColumnEmpty 是同一件事的两种粒度：那个看明细某一列，这个看单头某一个字段
+#                     field可选值与 PasteOrderField 完全一致（共用 _ORDER_FIELDS 白名单，别再列一遍）
+#                     用途：调拨申请单的联系电话/通讯地址/联系人非必填，Excel留空就别往金蝶粘空串
+#                     配法：粘在这个识别上，识别 inverse:true —— 字段有值才执行粘贴，空着就往下走
+#                     命中返回占位框(0,0,1,1)，只配分流用
 #循环结构参考：读取Excel → NextOrder → 点新增 → 填单/保存/提交 → NextOrder（还有单回到填单，没有了on_error收尾）
 
 import ctypes
@@ -76,13 +94,16 @@ _COLUMN_FIELDS = {
     "source_locations": "source_location",
     "target_warehouses": "target_warehouse",
     "target_locations": "target_location",
+    "source_orgs": "source_org",  #调拨申请单的明细里也有调出/调入组织两列（金蝶标了必填*），
+    "target_orgs": "target_org",  #值整单一致，配法和仓库列一样：first_only + 批量填充铺开
 }
 
 #PasteOrderField 的 field 参数白名单。field 来自 pipeline 的 JSON（人手写），
 #没有白名单的话写成 "__class__"、"items" 也能 getattr 出东西来 —— 白名单是必须的。
 #这里键名和 TransferOrder 的字段名本来就一字不差，所以直接列元组，不摆「左列=右列」的假翻译表
 #（PasteOrderColumn 的 _COLUMN_FIELDS 才是真翻译：参数名复数 → 字段名单数，那个留 dict）
-_ORDER_FIELDS = ("source_org", "target_org", "remark", "transfer_type")
+_ORDER_FIELDS = ("source_org", "target_org", "remark", "transfer_type",
+                 "apply_org", "applicant", "phone", "address", "contact", "demand_date")
 
 
 #Ctrl+A / Ctrl+V / Ctrl+Home 发按键用的虚拟键码（_chord 用）
@@ -244,9 +265,10 @@ class ReadTransferExcel(CustomAction):
         if not path:
             print("[ReadTransferExcel] 没给path，不知道该读哪个文件")
             return False  #没给文件路径
+        template = param.get("template", "transfer")  #Excel模板，两套单据的表头列名不同
 
         try:
-            _orders = excel_reader.read_orders(path)  #读文件并校验，格式不对会抛ExcelFormatError
+            _orders = excel_reader.read_orders(path, template)  #读文件并校验，格式不对会抛ExcelFormatError
         except excel_reader.ExcelFormatError as e:
             print(f"[ReadTransferExcel] {e}")  #把具体原因打出来（缺哪列/哪行数据坏）
             return False
@@ -452,3 +474,57 @@ class OrderColumnEmpty(CustomRecognition):
 
         print(f"[OrderColumnEmpty] {column}整列为空，命中（跳过填写）")
         return CustomRecognition.AnalyzeResult(box=(0, 0, 1, 1), detail={"column": column})  #占位框，调用方只拿它做分流
+
+
+@AgentServer.custom_recognition("OrderRemaining")  #队列里还有没填的单据时命中（防漏录护栏）
+class OrderRemaining(CustomRecognition):
+
+    def analyze(
+        self,
+        context: Context,
+        argv: CustomRecognition.AnalyzeArg,
+    ):
+
+        if not _orders:
+            print("[OrderRemaining] 队列是空的（ReadTransferExcel 还没跑过）")
+            return None  #没队列就别自作主张，让pipeline判失败
+
+        left = len(_orders) - (_current + 1)
+        if left <= 0:
+            print(f"[OrderRemaining] 共{len(_orders)}张单都已取过，不命中")
+            return None  #没有剩余单据，配inverse的收尾节点这才算通过
+
+        print(f"[OrderRemaining] 还剩{left}张单没填（当前第{_current + 1}张）："
+              f"本任务没有提交回环，就此结束会被整份Excel归档，剩下的单等于漏录")
+        return CustomRecognition.AnalyzeResult(box=(0, 0, 1, 1), detail={"remaining": left})  #还有单，命中
+
+
+@AgentServer.custom_recognition("OrderFieldEmpty")  #按当前单某个单头字段是否为空分流（空 → 跳过填写）
+class OrderFieldEmpty(CustomRecognition):
+
+    def analyze(
+        self,
+        context: Context,
+        argv: CustomRecognition.AnalyzeArg,
+    ):
+
+        order = _current_order()
+        if order is None:
+            print("[OrderFieldEmpty] 没有当前单据（先执行ReadTransferExcel和NextOrder）")
+            return None  #队列还没就绪，不命中
+
+        param = _params(argv, "custom_recognition_param")
+        if param is None:
+            return None  #参数不合法，不命中
+        field = param.get("field", "")
+        if field not in _ORDER_FIELDS:
+            print(f"[OrderFieldEmpty] 未知field: {field!r}，可选: {list(_ORDER_FIELDS)}")
+            return None  #field拼错了，不命中（配inverse的粘贴节点会因此被跳过，宁可少填不可填错）
+
+        value = getattr(order, field)
+        if value:
+            print(f"[OrderFieldEmpty] {field}有值({value!r})，不命中")
+            return None  #有值，让pipeline接着评估next列表里的下一个候选（正常填写路径）
+
+        print(f"[OrderFieldEmpty] {field}为空，命中（跳过填写）")
+        return CustomRecognition.AnalyzeResult(box=(0, 0, 1, 1), detail={"field": field})  #占位框，调用方只拿它做分流
