@@ -32,9 +32,9 @@
                 "window_regex": "金蝶|云星空|Kingdee.BOS.XPF",
                 // 截图及控制方式，请根据项目实际情况修改
                 // 文档: https://maafw.xyz/docs/2.4-ControlMethods
-                "screencap": "ScreenDC", // 截图方式（原PrintWindow）
+                "screencap": "FramePool", // 截图方式（原ScreenDC）
                 "mouse": "Seize", // 鼠标控制方式(原：PostMessageWithCursorPos)
-                "keyboard": "Seize" // 键盘控制方式（原：PostMessageWithCursorPos）
+                "keyboard": "PostMessage" // 键盘控制方式（原：Seize）
             }
         }
     ],

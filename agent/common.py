@@ -30,6 +30,11 @@ def _params(argv, attr="custom_action_param", tag="agent"):
     #于是所有故意不写参数的识别节点全部静默不命中（ErrorPopupOpen 第一版就是这么废的）。
     if raw is None or (isinstance(raw, str) and raw.strip() in ("", "null")):
         raw = "{}"
+    #GUI（MFAAvalonia）会把参数**反序列化成对象**再传下来，到 agent 侧已经是 dict 而不是 JSON 字符串。
+    #json.loads(dict) 抛 TypeError → 判成"参数写坏"，于是所有带参数的动作在 GUI 里全灭（2026-11-16 实测）。
+    #dict 直接放行；其余类型仍按原样走 JSON 解析兜底。
+    if isinstance(raw, dict):
+        return raw
     try:
         param = json.loads(raw)
     except (TypeError, json.JSONDecodeError) as e:

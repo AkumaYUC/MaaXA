@@ -11,6 +11,7 @@ from maa.toolkit import Toolkit
 import my_action
 import common
 import transfer_actions
+import uia_actions
 
 
 def main():

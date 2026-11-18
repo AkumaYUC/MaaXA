@@ -71,6 +71,8 @@
 import ctypes
 import time
 
+from ctypes import wintypes  #HWND/DWORD/BOOL 等结构体（import ctypes 不会带出 wintypes）
+
 import pyperclip
 
 from maa.agent.agent_server import AgentServer
@@ -113,6 +115,65 @@ _VK_V = 0x56  #字母V的虚拟键码
 _VK_HOME = 0x24  #Home键的虚拟键码
 _KEYEVENTF_KEYUP = 0x0002  #按键释放标志
 
+#金蝶主窗口的 Win32 类名前缀（全类名形如
+#HwndWrapper[Kingdee.BOS.XPF.App.exe;;<GUID>]，GUID 每次启动重新生成，所以只比前缀）。
+#与 uia_actions._MAIN_WINDOW_CLASS 同源，两个模块各自留一份是为了不互相 import 形成环
+_KINGDEE_CLASS_PREFIX = "HwndWrapper[Kingdee.BOS.XPF.App"
+
+
+def _kingdee_pid():
+    #金蝶主窗口的进程号（按 Win32 类名前缀认，类名里的 GUID 每次重启会变所以只比前缀）。
+    #没开返回 0
+    user32 = ctypes.windll.user32
+    holder = []
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)  #回调必须返回 4 字节 BOOL
+    def enum_proc(hwnd, lparam):
+        if not hwnd or not user32.IsWindowVisible(hwnd):
+            return True
+        buf = ctypes.create_unicode_buffer(256)
+        user32.GetClassNameW(hwnd, buf, 256)
+        if buf.value.startswith(_KINGDEE_CLASS_PREFIX):
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            holder.append(pid.value)
+            return False  #拿到了就停
+        return True
+
+    try:
+        user32.EnumWindows(enum_proc, 0)
+    except Exception:
+        return 0
+    return holder[0] if holder else 0
+
+
+def _foreground_is_kingdee(tag):
+    #全局按键（keybd_event / SendInput）打的是**当前前台窗口**，不是我们想打的那个。
+    #后台跑时前台是用户的程序，此时发 Ctrl+V 就是"把单据内容粘进用户的邮件/编辑器"，
+    #而且金蝶那边什么都没收到 —— 属于事故级，绝不能靠"应该是前台吧"来赌。
+    #所以发按键之前先验一次：前台窗口和金蝶主窗口同进程才算过关（金蝶自己的独立弹窗
+    #同属一个进程，所以「维度数据录入」这类弹窗也能过关）。
+    #不过关就拒绝发送并返回 False，让 pipeline 走 on_error —— 报错停住远好于静默打错地方。
+    user32 = ctypes.windll.user32
+    fg = user32.GetForegroundWindow()
+    if not fg:
+        print(f"[{tag}] 当前没有前台窗口，拒绝发送按键（keybd_event 是全局注入，没有前台就会打空或打错）")
+        return False
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(fg, ctypes.byref(pid))
+    kingdee = _kingdee_pid()
+    if not kingdee:
+        print(f"[{tag}] 找不到金蝶客户端窗口，拒绝发送按键")
+        return False
+    if pid.value != kingdee:
+        buf = ctypes.create_unicode_buffer(256)
+        user32.GetWindowTextW(fg, buf, 256)
+        print(f"[{tag}] 前台窗口不是金蝶（标题「{buf.value[:40]}」，进程{pid.value} ≠ 金蝶{kingdee}），"
+              f"拒绝发送按键 —— 按键是全局注入，硬发就会打进你正在用的程序里。"
+              f"请把金蝶切到前台再重试，或先关掉这个任务的自动粘贴环节")
+        return False
+    return True
+
 
 def _current_order():
     #取当前单据。ReadTransferExcel / NextOrder 还没跑过（或已经取完）时返回 None
@@ -134,19 +195,21 @@ def _column_lines(order, column, first_only=True):
     return lines, field
 
 
-def _set_clipboard(text, label, select_all=False, replayed=False):
+def _set_clipboard(text, label, select_all=False, replayed=False, tag=""):
     #把 text 写进剪贴板，同时记下"最近一次粘贴"，弹窗吃掉这次粘贴时由 RePasteLast 原样补粘
     #select_all：粘贴前先Ctrl+A覆盖框里原有文字（输入框类字段用）
     #clipboard_only（只复制、真粘贴由pipeline右键完成）也照样记 —— 右键粘的就是这份剪贴板，
     #补粘时用Ctrl+V重放它；粘没粘上仍然由pipeline的校验节点判
     #replayed：RePasteLast 补粘时传True，把"这次粘贴已补过"的标记留住，免得它自己把自己重置成没补过
-    if select_all:
-        _ctrl_a()
+    #返回 False = 前台不是金蝶、Ctrl+A 被拒（见 _foreground_is_kingdee），调用方别再往下发 Ctrl+V
+    if select_all and not _ctrl_a(tag or "_set_clipboard"):
+        return False
     pyperclip.copy(text)
     _last_paste["text"] = text
     _last_paste["label"] = label
     _last_paste["select_all"] = bool(select_all)
     _last_paste["replayed"] = replayed
+    return True
 
 
 @AgentServer.custom_action("PasteText")  #粘贴固定文本（pipeline调用）
@@ -158,8 +221,10 @@ class PasteText(CustomAction):
         text = param.get("text", "")
         if not text:
             return False
-        _set_clipboard(text, "PasteText", select_all=True)  #搜索框可能有残留文字，先全选覆盖
-        _ctrl_v()
+        if not _set_clipboard(text, "PasteText", select_all=True):  #搜索框可能有残留文字，先全选覆盖
+            return False  #前台不是金蝶，Ctrl+A 已被拒绝，别再往下发
+        if not _ctrl_v("PasteText"):
+            return False  #同上：Ctrl+V 没发出去，让 pipeline 走 on_error，别假成功
         return True
 
 
@@ -186,16 +251,22 @@ class PasteOrderField(CustomAction):
             return False  #field拼错了
 
         value = getattr(order, field)  #取当前单这一字段的值
-        _set_clipboard(value, f"PasteOrderField:{field}", select_all=bool(param.get("select_all")))  #输入框默认有文字时先全选，粘贴直接覆盖
-        _ctrl_v()
+        if not _set_clipboard(value, f"PasteOrderField:{field}",  #输入框默认有文字时先全选，粘贴直接覆盖
+                              select_all=bool(param.get("select_all")), tag="PasteOrderField"):
+            return False  #前台不是金蝶，Ctrl+A 已被拒绝
+        if not _ctrl_v("PasteOrderField"):
+            return False  #Ctrl+V 没发出去，让 pipeline 走 on_error
         print(f"[PasteOrderField] 已粘贴{field}: {value!r}")
         return True  #粘贴成功
 
 
-def _chord(key, settle=0.1):
+def _chord(key, settle=0.1, tag=""):
     #发一个 Ctrl+key 组合键：Ctrl 全程按住，功能键按下→停50ms→松开。
     #必须用 keybd_event 保证 Ctrl 一直按住（pipeline 的 ClickKey 传数组是逐个点击，做不了组合键）。
     #settle 是组合键之后的收尾等待：Ctrl+A 后面紧跟 Ctrl+V 传 0；Ctrl+V / Ctrl+Home 之后要等金蝶响应传 0.1
+    #返回 False 表示"没发"（前台不是金蝶，见 _foreground_is_kingdee），调用方必须据此中止
+    if not _foreground_is_kingdee(tag or "_chord"):
+        return False  #一个键都没发出去，Ctrl 也不会被按住，不存在半途状态
     user32 = ctypes.windll.user32
     user32.keybd_event(_VK_CONTROL, 0, 0, 0)  #按下Ctrl
     user32.keybd_event(key, 0, 0, 0)  #按下功能键
@@ -204,21 +275,22 @@ def _chord(key, settle=0.1):
     user32.keybd_event(_VK_CONTROL, 0, _KEYEVENTF_KEYUP, 0)  #松开Ctrl
     if settle:
         time.sleep(settle)  #给金蝶一点响应时间
+    return True
 
 
-def _ctrl_a():
+def _ctrl_a(tag=""):
     #发送Ctrl+A，全选当前焦点控件里的内容（后面紧跟Ctrl+V，所以收尾不等待）
-    _chord(_VK_A, settle=0)
+    return _chord(_VK_A, settle=0, tag=tag)
 
 
-def _ctrl_v():
+def _ctrl_v(tag=""):
     #发送Ctrl+V，把剪贴板内容粘贴进当前有焦点的控件
-    _chord(_VK_V)
+    return _chord(_VK_V, tag=tag)
 
 
-def _ctrl_home():
+def _ctrl_home(tag=""):
     #发送Ctrl+Home，把表格光标移回首行首列
-    _chord(_VK_HOME)
+    return _chord(_VK_HOME, tag=tag)
 
 
 def _activate_window(title):
@@ -340,7 +412,8 @@ class PasteOrderColumn(CustomAction):
             print(f"[PasteOrderColumn] 没找到窗口「{focus_window}」或激活失败，跳过粘贴")
             return False  #弹窗没开就别乱粘，返回False让pipeline走on_error重来
 
-        _ctrl_v()
+        if not _ctrl_v("PasteOrderColumn"):
+            return False  #前台不是金蝶，Ctrl+V 被拒；剪贴板已写好但没粘，让 pipeline 走 on_error
         print(f"[PasteOrderColumn] 已粘贴{column}: {len(lines)}行")
         return True  #粘贴成功
 
@@ -360,9 +433,12 @@ class RePasteLast(CustomAction):
         if _last_paste["replayed"]:
             print(f"[RePasteLast] {_last_paste['label']} 已经补粘过一次，不再重复")
             return True  #补粘又被弹窗吃了就交给pipeline的校验节点判失败，别在这死循环
-        _set_clipboard(_last_paste["text"], _last_paste["label"],
-                       select_all=_last_paste["select_all"], replayed=True)
-        _ctrl_v()
+        if not _set_clipboard(_last_paste["text"], _last_paste["label"],
+                              select_all=_last_paste["select_all"], replayed=True,
+                              tag="RePasteLast"):
+            return False  #前台不是金蝶，Ctrl+A 已被拒绝
+        if not _ctrl_v("RePasteLast"):
+            return False  #同上
         print(f"[RePasteLast] 已补粘 {_last_paste['label']}")
         return True  #按键已发出，粘没粘上交给pipeline的校验节点判
 
@@ -376,7 +452,8 @@ class PressCtrlHome(CustomAction):
         argv: CustomAction.RunArg,
     ) -> bool:
 
-        _ctrl_home()
+        if not _ctrl_home("PressCtrlHome"):
+            return False  #前台不是金蝶，Ctrl+Home 被拒
         print("[PressCtrlHome] 已发送Ctrl+Home")
         return True  #按键已发出，是否真的置顶交给pipeline的校验节点判断
 
@@ -402,6 +479,13 @@ class PopupKeys(CustomAction):
         if not _activate_window(title):
             print(f"[PopupKeys] 没找到窗口「{title}」或激活失败")
             return False  #弹窗没开就别发按键，让pipeline走on_error重来
+
+        #_activate_window 只按标题精确 FindWindowW，不校验进程；而且 SetForegroundWindow
+        #会被 Windows 前台锁静默拒绝（返回 False 但窗口没动）。所以"激活成功"不等于
+        #"键盘进得了那个弹窗" —— 这里再验一次前台确实归金蝶进程，否则按键会打到
+        #用户正在用的程序上（弹窗类按键往往是回车/ESC，误发给编辑器就是误保存/误关文档）。
+        if not _foreground_is_kingdee("PopupKeys"):
+            return False
 
         user32 = ctypes.windll.user32
         key_delay = param.get("key_delay", 150)  #每个按键之后等待的毫秒数
