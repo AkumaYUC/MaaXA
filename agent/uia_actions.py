@@ -558,6 +558,30 @@ def _reset_cache():
     _MAIN_CACHE = None
 
 
+#页面级缓存（2026-11-20 性能优化）。_MAIN_CACHE 每个动作入口都被 _reset_cache 清掉，
+#这是防"金蝶重启后拿旧句柄"的必要约束，但它逼每个字段操作重新全树遍历：
+#_header_editor 一次遍历几千个跨进程 COM 调用、实测 5~15s，一张单 18 个字段操作
+#就是 GUI 实测 5m1s 里的大头。这里缓存的是"同一张编辑页内不会变的东西"：
+#单头扫描结果（标签+候选编辑框）、明细容器列表。
+#生命周期 = 一次页面：四个"页面会变"的地方显式作废（UiaSetForm/UiaNavigate/UiaInvokeButton/
+#UiaPickCombo提交后，见 _invalidate_page_cache 调用点），另加廉价存活探测兜底
+#（用户手动切页签/改窗口尺寸时，缓存节点读属性会抛异常或主窗矩形变了 → 作废重扫）。
+#缓存只省遍历，不改任何识别/配对/拒绝逻辑；配对和值读取仍然实时。
+#动作队列单线程串行执行（同 _FG_ORIG 的成立理由），一个 dict 够用。
+_PAGE_CACHE = {"hwnd": 0, "header": None, "panels": None}
+
+
+def _invalidate_page_cache():
+    _PAGE_CACHE["hwnd"] = 0
+    _PAGE_CACHE["header"] = None
+    _PAGE_CACHE["panels"] = None
+
+
+def _page_cache_usable():
+    #缓存必须属于当前主窗：句柄对得上且非 0（金蝶没开时 _main_hwnd()==0，绝不许命中缓存）
+    return bool(_PAGE_CACHE["hwnd"]) and _PAGE_CACHE["hwnd"] == _main_hwnd()
+
+
 def _main_pid():
     #金蝶进程号。弹窗归属校验用：别的 WPF 程序也有列表，只按"有 DataItem"认会认错爹
     main = _main_window()
@@ -639,8 +663,43 @@ def _read_cell_text(node):
     #于是每列都凭空多出一个"有值的行"（UiaRowCount 数出 2 行 / Excel 只有 1 行的根因）
 
 
-def _detail_grid(aid, tag):
+def _detail_panels(tag):
+    #全树找 aid=dataPresenter 的 PaneControl（明细容器候选），结果进页面级缓存。
+    #存活探测：逐个读 IsOffscreen（每容器一个 COM 调用）；金蝶重建/切页后旧引用读属性会抛，
+    #全部读不通就重扫。容器本身在一页里不变，变的是里面的行 —— 行不缓存（_grid_cells 现走）
+    cached = _PAGE_CACHE["panels"]
+    if cached is not None and _page_cache_usable():
+        alive = []
+        visible = 0
+        for p in cached:
+            try:
+                off = bool(p.IsOffscreen)
+            except Exception:
+                continue  #节点已销毁
+            alive.append(p)
+            if not off:
+                visible += 1
+        #⚠️命中必须"至少一个容器仍可见"：用户中途切页签时，旧容器全部转 offscreen
+        #但节点没销毁（读属性不抛）——只查存活会拿着"当前不可见的那张单"的容器继续配对，
+        #_detail_grid 的可见性过滤就只剩旧页签一个候选 → 写进非活动单据（10:19 事故同型）。
+        #全部不可见 → 作废重扫（最小化态也走重扫，行为与无缓存时一致）
+        if alive and visible:
+            return alive
+    main = _main_window()
+    if main is None:
+        return None
+    panels = [p for p in _walk(main, want_aid="dataPresenter")
+              if p.ControlTypeName == "PaneControl"]
+    if panels:  #空结果不缓存：可能只是页面还没加载完，下一动作要重扫
+        _PAGE_CACHE["panels"] = panels
+        _PAGE_CACHE["hwnd"] = _main_hwnd()
+    return panels
+
+
+def _detail_grid(aid, tag, _retry=True):
     #取"当前这张单据"的明细容器；分不清就返回 None（宁可不填也不能填进别的单据）。
+    #失败先作废页面缓存重扫一次再下结论（_retry 防死循环）：缓存过期时的典型表现就是
+    #"找不到字段/多张单据歧义"这类假失败，重扫一次既纠错又只在失败路径多花一次遍历
     #
     #为什么必须做这一步：金蝶每轮失败都会留下一个没关的「直接调拨单 - 新增」页签，
     #每个页签里都有一套**同名同 AutomationId** 的格子，Name 还都叫 "Row 0, Column 2"。
@@ -659,16 +718,20 @@ def _detail_grid(aid, tag):
     #窗口最小化时金蝶把所有元素都标成 offscreen（11-10 §2.5 的离屏虚拟坐标），
     #那时靠可见性分不出来 → 一律拒绝并提示关掉残留页签。
     #残留页签关掉后 holders==1，最小化态照样能写，不影响后台目标。
-    main = _main_window()
-    if main is None:
+    panels = _detail_panels(tag)
+    if panels is None:
         return None
-    panels = [p for p in _walk(main, want_aid="dataPresenter")
-              if p.ControlTypeName == "PaneControl"]
     if not panels:
+        if _retry:
+            _invalidate_page_cache()
+            return _detail_grid(aid, tag, _retry=False)
         print(f"[{tag}] 界面上没有明细表格（当前页不是单据编辑页？先点「新增」把单开出来）")
         return None
     holders = [p for p in panels if _grid_cells(p, aid)]
     if not holders:
+        if _retry:
+            _invalidate_page_cache()
+            return _detail_grid(aid, tag, _retry=False)
         print(f"[{tag}] 明细表格里找不到字段 {aid}（列没渲染出来？横向滚动或列被隐藏）")
         return None
     if len(holders) == 1:
@@ -676,6 +739,10 @@ def _detail_grid(aid, tag):
     visible = [p for p in holders if not _is_offscreen(p)]
     if len(visible) == 1:
         return visible[0]
+    if _retry:
+        #假歧义：缓存里可能还留着已被用户关掉的页签容器，重扫一次再判
+        _invalidate_page_cache()
+        return _detail_grid(aid, tag, _retry=False)
     print(f"[{tag}] 同时开着 {len(holders)} 张单据（可见 {len(visible)} 张），"
           f"分不清该往哪张单写，拒绝写入。"
           f"请把之前失败留下的「直接调拨单 - 新增」页签关掉再跑")
@@ -756,8 +823,83 @@ def _read_header_value(node, pattern):
     return ""
 
 
-def _header_editor(field, tag):
+def _header_scan(tag):
+    #全树扫一遍：_HEADER_FIELDS 里所有候选标签文本 + 带 ValuePattern 的候选编辑框。
+    #返回 (labels_by_text, edits, win_rect)；labels_by_text: 文本→[(节点,矩形)]，
+    #edits: [(节点, pattern, 矩形, 类名)]。一次遍历服务所有字段（旧写法每个字段各扫一遍全树，
+    #单头 8 个字段就是 8 次几千 COM 调用的遍历 —— 实测 5m1s 里的最大单项开销）
+    main = _main_window()
+    if main is None:
+        print(f"[{tag}] 没找到金蝶主窗口（客户端是不是没开/停在登录页？）")
+        return None
+    win_rect = _header_rect(main)
+    wanted = set(_HEADER_FIELDS.values())
+    labels_by_text = {}
+    edits = []
+    for node in _walk(main):
+        rect = _header_rect(node)
+        if rect is None or _is_offscreen(node) or not _in_main_window(rect, win_rect):
+            continue
+        try:
+            ct = node.ControlTypeName
+            cls = node.ClassName or ""
+            aid = node.AutomationId or ""
+            name = (node.Name or "").strip()
+        except Exception:
+            continue
+        if ct == "TextControl" and name in wanted:
+            labels_by_text.setdefault(name, []).append((node, rect))
+            continue
+        if aid == "PART_Editor":  #内层部件，和父控件矩形重合，留着会配出两个候选
+            continue
+        if not any(hint in cls for hint in _HEADER_CLASS_HINTS):
+            continue
+        try:
+            pattern = node.GetPattern(_uia.PatternId.ValuePattern)
+        except Exception:
+            pattern = None
+        if pattern is None:
+            continue
+        edits.append((node, pattern, rect, cls))
+    return labels_by_text, edits, win_rect
+
+
+def _header_scan_cached(tag):
+    cached = _PAGE_CACHE["header"]
+    if cached is not None and _page_cache_usable():
+        labels_by_text, edits, win_rect = cached
+        probe = None
+        for bucket in labels_by_text.values():
+            if bucket:
+                probe = bucket[0][0]
+                break
+        if probe is None and edits:
+            probe = edits[0][0]
+        alive = True
+        if probe is not None:
+            try:
+                #同 _detail_panels：切页签后旧标签节点还活着但已 offscreen，
+                #只查存活会把"上一页的编辑框"当这页的结果交出去 → 必须连可见性一起复核
+                if probe.IsOffscreen:
+                    alive = False
+            except Exception:
+                alive = False
+        if alive:
+            main = _main_window()
+            cur = _header_rect(main) if main is not None else None
+            #主窗矩形变了（最大化/还原/挪动）→ 缓存里所有坐标作废
+            if cur is not None and cur == win_rect:
+                return cached
+    fresh = _header_scan(tag)
+    if fresh is not None and (fresh[0] or fresh[1]):  #空结果不缓存：页面可能还没加载完
+        _PAGE_CACHE["header"] = fresh
+        _PAGE_CACHE["hwnd"] = _main_hwnd()
+    return fresh
+
+
+def _header_editor(field, tag, _retry=True):
     #按界面标签定位单头编辑框，返回 (node, value_pattern, 标签rect, 控件rect, 类名)；失败返回 None。
+    #失败先作废页面缓存重扫一次再下结论（_retry 防死循环），理由同 _detail_grid
     #
     #为什么不能像明细那样用 AutomationId：单头控件的 aid 是 WPF 模板部件名 'PART_Editor'，
     #一张单里几十个控件共用同一个名字，根本不唯一（实测单据编辑页没有任何含 ORG 的 aid）。
@@ -772,37 +914,14 @@ def _header_editor(field, tag):
     if not label:
         print(f"[{tag}] 未知单头字段 {field!r}，可选: {list(_HEADER_FIELDS)}")
         return None
-    main = _main_window()
-    if main is None:
-        print(f"[{tag}] 没找到金蝶主窗口（客户端是不是没开/停在登录页？）")
+    scanned = _header_scan_cached(tag)
+    if scanned is None:
         return None
-    win_rect = _header_rect(main)
-    labels, edits = [], []
-    for node in _walk(main):
-        rect = _header_rect(node)
-        if rect is None or _is_offscreen(node) or not _in_main_window(rect, win_rect):
-            continue
-        try:
-            ct = node.ControlTypeName
-            cls = node.ClassName or ""
-            aid = node.AutomationId or ""
-            name = (node.Name or "").strip()
-        except Exception:
-            continue
-        if ct == "TextControl" and name == label:
-            labels.append((node, rect))
-            continue
-        if aid == "PART_Editor":  #内层部件，和父控件矩形重合，留着会配出两个候选
-            continue
-        if not any(hint in cls for hint in _HEADER_CLASS_HINTS):
-            continue
-        try:
-            pattern = node.GetPattern(_uia.PatternId.ValuePattern)
-        except Exception:
-            pattern = None
-        if pattern is None:
-            continue
-        edits.append((node, pattern, rect, cls))
+    labels_by_text, edits, _win_rect = scanned
+    labels = labels_by_text.get(label, [])
+    if not labels and _retry:
+        _invalidate_page_cache()
+        return _header_editor(field, tag, _retry=False)
     if not labels:
         #2026-11-18 用户实测：明细列全绿、到单头突然"找不到标签"——真身是**窗口最小化**。
         #最小化时 Win32 给主窗 237×39 的虚拟矩形，所有元素坐标都落在窗外，
@@ -822,6 +941,9 @@ def _header_editor(field, tag):
             print(f"[{tag}] 界面上没有可见的「{label}」标签（当前页不是单据编辑页？"
                   f"还是这张单的标签文本和 _HEADER_FIELDS 里记的不一样？）")
         return None
+    if not edits and _retry:
+        _invalidate_page_cache()
+        return _header_editor(field, tag, _retry=False)
     if not edits:
         print(f"[{tag}] 找到了「{label}」标签，但附近没有任何带 ValuePattern 的编辑框")
         return None
@@ -846,9 +968,16 @@ def _header_editor(field, tag):
         b = pair(rect)
         if b is not None:
             hits.append((b[1], b[2], rect, b[3], b[4]))
+    if not hits and _retry:
+        _invalidate_page_cache()
+        return _header_editor(field, tag, _retry=False)
     if not hits:
         print(f"[{tag}] 「{label}」标签右侧 300px 内没有编辑框，拒绝写入。标签位置: {labels[0][1]}")
         return None
+    if len(labels) > 1 and _retry:
+        #假歧义：缓存里可能算进了已关闭页签的标签，重扫一次再判
+        _invalidate_page_cache()
+        return _header_editor(field, tag, _retry=False)
     if len(labels) > 1:
         print(f"[{tag}] 「{label}」标签在窗口内出现 {len(labels)} 次（可能同时开着多张单据），"
               f"分不清该往哪张单写，拒绝写入。请把失败留下的单据页签关掉再跑")
@@ -1381,6 +1510,7 @@ class UiaSetForm(CustomAction):
         _LOOKUP_FIELDS.clear()
         _LOOKUP_FIELDS.update(
             _LOOKUP_FIELDS_REQUISITION if form == "requisition" else _LOOKUP_FIELDS_TRANSFER)
+        _invalidate_page_cache()  #任务入口：页面级缓存从这一张新单开始攒
         print(f"[UiaSetForm] 明细字段白名单已切到 {form}（{sorted(_CELL_FIELDS)}），"
               f"查找类闸={sorted(_LOOKUP_FIELDS) or '无'}")
         return True  #白名单切换本身不碰界面，成败只取决于 form 名字对不对
@@ -2151,6 +2281,7 @@ class UiaNavigate(CustomAction):
         if not _require_uia("UiaNavigate"):
             return False
         _reset_cache()  #每个动作重新认窗口，不跨动作复用旧句柄
+        _invalidate_page_cache()  #本动作就是要换页面：幂等检查必须用新鲜树，不许命中上一页缓存
         param = _params(argv)  #拉取参数
         if param is None:
             return False
@@ -2188,6 +2319,7 @@ class UiaNavigate(CustomAction):
                 _ensure_window_visible()
                 _fg_restore()
                 _reset_cache()  #页面在变，每轮重新认树
+                _invalidate_page_cache()  #…以及重扫页面级缓存（否则上一轮缓存会假报"已就位"）
                 if ready():
                     return True
             return False
@@ -2335,6 +2467,7 @@ class UiaInvokeButton(CustomAction):
             return False
         _fg_restore()  #Invoke 偷走的前台立刻归还，界面跳转的等待期用户窗口拿回前台
         time.sleep(max(0, post_wait_ms) / 1000.0)  #给界面跳转留时间（保存→列表约2-3s）
+        _invalidate_page_cache()  #保存/列表/新增 之后页面可能整个换掉，缓存作废
         print(f"[UiaInvokeButton] 已 Invoke「{name}」，等 {post_wait_ms}ms")
         return True  #Invoke 不抛即算发出；生效与否由下一个节点（识别/回读）把关
 
@@ -2483,6 +2616,8 @@ class UiaPickCombo(CustomAction):
         time.sleep(1.2)
 
         #回读必须**重新配对**再读：点击提交后金蝶可能重建控件，旧引用读到的是缓存值
+        #（页面级缓存同理必须作废，否则"重新配对"拿到的还是提交前那棵树）
+        _invalidate_page_cache()
         actual = ""
         again = _header_editor(field, "UiaPickCombo")
         if again is not None:
