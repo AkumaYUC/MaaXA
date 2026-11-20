@@ -23,7 +23,7 @@
 #                       text:        固定关键词，只在测试/单一时段场景用
 #                     两者的值都来自 Excel 模板的对应列（直接调拨单模板有 调出仓库/调出仓位/调入仓库/调入仓位 四列）
 #                     row是明细行号，0=第一行，省略=0（同一列每行各有一个格子，多行单据必须逐行调）
-#                     text是包含匹配：填"委外仓"能匹配"广州股份委外仓"；多行命中时取最靠前一行，
+#                     text是包含匹配：填关键词片段能命中完整名称；多行命中时取最靠前一行，
 #                     最终校验用**归一化等值**（剥掉"名称(编码)"里的编码后缀后要求相等），
 #                     所以"选到隔壁行"会被拒，不会静默写错仓库
 #                     选行只认 SelectionItemPattern.Select()：拿不到或返回失败就直接失败，
@@ -32,7 +32,7 @@
 #                     前置：本动作会先关掉残留的旧查找列表（否则句柄基线会把新弹窗也排除掉，
 #                     造成跨重试死锁）；只关"带DataItem行且有成对确定+取消按钮"的金蝶弹窗，不碰主窗口
 #                     注意：本动作只服务"数据格子的查找列表"，不碰维度数据录入那类独立弹窗
-#  UiaReadCell        param: {"field": "source_warehouse", "row": 0, "expect": "委外"}
+#  UiaReadCell        param: {"field": "source_warehouse", "row": 0, "expect": "<要核对的关键词>"}
 #                     回读明细格子当前已提交的值，代替OCR做校验（小字文案OCR不准，#32已判死）
 #                     判据三选一，按优先级：not_expect > nonzero > expect
 #                     not_expect：值**不等于**它才通过（判"粘贴生效"用：默认是0，粘上去就不是0）
@@ -62,14 +62,14 @@
 #                     不命中 → 让pipeline走兜底（重粘物料 / 报错收尾），避免"少粘几行还往下填"
 #                     inverse:true 时反过来（行数不一致才命中），配自环重试用
 #                     命中返回占位框(0,0,1,1)，只配分流用
-#  UiaSetHeaderField  param: {"field": "target_org", "value": "103", "expect": "东莞"}
+#  UiaSetHeaderField  param: {"field": "target_org", "value": "<组织编码>", "expect": "<组织名片段>"}
 #                     给**单头**字段写值（组织/调拨类型/备注/申请人…），UIA ValuePattern，零鼠标零按键注入。
 #                     存在的理由就是后台：原先单头走 PasteOrderField（Ctrl+V，底层 keybd_event 全局注入），
 #                     前台是用户程序时按键会打进用户的窗口里 —— 后台模式不能用它，只能走 UIA
 #                     field 用 _HEADER_FIELDS 的键名；label 可覆盖默认标签（申请单叫「调出组织」不是「调出库存组织」）
 #                     value 省略时从当前单据队列取（Excel 契约不变）；值为空就什么都不动、返回True
 #                     ⚠️组织/申请人这类基础资料字段**别配 expect**：11-16 probe7 实测编码→名称的
-#                     解析发生在**保存提交时**，写后立刻回读还是编码原样（"102"），expect 反而误判失败；
+#                     解析发生在**保存提交时**，写后立刻回读还是编码原样，expect 反而误判失败；
 #                     外键校验放到保存之后用 UiaHeaderFilled 做
 #                     定位靠标签几何配对（单头的 aid 全是模板部件名 PART_Editor，不唯一，没法按 aid 找）；
 #                     同名标签出现多次（多张单据页同开）一律拒绝写入，和 _detail_grid 同一原则
@@ -77,8 +77,54 @@
 #                     SetValue 抛 COMError 0x80040200（UIA_E_INVALIDOPERATION），但同一个 pattern 读值正常；
 #                     真正能写的是它内层的 EditControl（KDPopupBaseEdit/ButtonEdit/KDDatePicker 都有，
 #                     IsReadOnly=False）。本动作先走内层 Edit，找不到才退外层。
-#                     编码→外键解析**已实测成立**（申请组织 102→保存后显示名称、申请人 0573→「黎紫钧」），
+#                     编码→外键解析**已实测成立**（组织编码→保存后显示组织名称、人员编码→显示姓名），
 #                     解析发生在**保存提交时**，写后立刻回读可能还是编码原样 —— 校验要放到保存之后
+#  UiaPickCombo       param: {"field": "apply_type", "value": "<下拉里真实存在的选项>"}  组合框下拉选择（全程后台）
+#                     适用：调拨类型 / 调拨申请类型 这类 KDComboBoxEdit 字段 ——
+#                     外层 ValuePattern.SetValue 抛 INVALIDOPERATION（probe4）、又没有可写的内层 Edit，
+#                     唯一通道是"展开下拉→点中目标项"。
+#                     提交机制（2026-11-18 probe58/59/60 三轮对照实测）：
+#                       ExpandCollapsePattern.Expand() 能后台展开（下拉项直接进主窗树，ListItemControl）；
+#                       提交 = Select() 高亮 → PostMessage Enter 到主窗（probe60 S3 路线，全程零鼠标）。
+#                       踩过的两个假提交：只 Select 不回车（只高亮）；Select+DoDefaultAction 打旧对象
+#                       （下拉重渲染后引用失效）—— 都表现为"调用成功、回读不变"，别走回头路。
+#                     value 省略时从当前单据队列取（Excel 契约不变）；值为空=不动、保留金蝶默认、返回True；
+#                     现值已等于目标值直接过（不展开不点击，probe59 实测金蝶默认值恰好正确时别白点）。
+#                     ⚠️下拉项**每个公司/账套不一样**（同一字段在这套账套里是哪些选项，完全由账套配置决定，
+#                     代码里不写死任何具体业务词，一律从 Excel 传进来），
+#                     所以匹配必须是**等值**不是包含，找不到就失败并在日志里列出全部可选项——
+#                     宁可停下让用户改 Excel，也绝不"差不多"选一个静默填错。
+#                     提交后**重新配对再回读**（控件可能重建，旧引用读的是缓存），等值才算成功。
+#  UiaPickFlex        param: {"field": "source_location", "row": 0, "keyword": "某仓位名称", "expect": "名称片段"}
+#                     弹性域（仓位/库位这类"多维值集组合"字段）的后台填写：走金蝶自己的
+#                     「维度数据录入」弹窗，而不是往格子里塞字符串。
+#                     ⚠️这类字段**不接受**任何形态的直写：名称、编码、编码+名称、仓库/120 全部实测被吞
+#                       （格子内层编辑器收得到文本，金蝶从不提交解析）—— 所以只能驱动弹窗。
+#                     ⚠️前置：**同行的仓库列必须先填好**。仓库为空时仓位格是禁用态，
+#                       里面连编辑控件都没有（只有一个 TextBlock），点了也不会有弹窗。
+#                     keyword 省略时从当前单据队列按 field 取（Excel 契约不变，填名称即可，不用编码）；
+#                       keyword 为空 = 本行无需填这一列，记日志返回True（和 UiaSetCell 空值语义一致）
+#                     expect 填了就在提交后要求格子回读包含它，省略=只要求非空
+#                     流程（每一步都有判据，不靠"调用没抛异常"下结论）：
+#                       ①格子必须在视口内 —— 不在就用明细网格的 ScrollPattern 横向滚过去
+#                       ②PostMessage 点格子中心进编辑态 → 再点放大镜候选位 → 等弹窗出现
+#                         放大镜是金蝶自绘的，**不在 UIA 树里**（没有 Invoke/Expand/Legacy 元素），
+#                         所以只能"点"；但点是 PostMessage 到主窗，不碰用户鼠标键盘
+#                       ③支路一（优先）：清空输入框 → 焦点进内层 TextBox → 逐字 WM_CHAR 输入 keyword
+#                         → 金蝶弹「全模糊匹配」下拉 → 双击唯一命中行 → 输入框回显编码
+#                         ⚠️SetValue 不触发下拉，只有真实字符消息触发（实测）
+#                       ④支路二（下拉没出现时兜底）：SetValue(keyword) → Invoke 内层 PART_Item →
+#                         等「值集资料选择列表」→ 包含匹配找唯一行 → SelectionItem.Select →
+#                         提交（先 Enter 后双击兜底，判据=输入框回显编码）；没命中点 bNext 翻页，
+#                         翻完仍没有 = 失败（绝不瞎选第一行）
+#                         ⚠️这条列表查询实测会整批返回空（会话/账套相关），所以才加支路一
+#                       ⑤Invoke 弹窗「确定」→ 回读格子
+#                     坐标鲁棒性：放大镜落点**全部相对格子自身 UIA 矩形按比例算**，
+#                       列顺序、列宽、DPI、分辨率变了 rect 自己会变，候选点跟着变；
+#                       再配"候选位逐个试 + 弹窗出现才算命中"，点错候选只是多试一次，不会写错数据
+#                     ⚠️全程不隐藏弹窗/列表窗口：实测隐藏会留下关不掉的僵尸顶层窗，
+#                       后续再触发就永远等不到新弹窗（跨重试死锁）
+#                     ⚠️弹窗会短暂抢前台（单列约 20-30s），动作结束用 _fg_restore 还给用户窗口
 #  UiaSetForm         param: {"form": "requisition"}  切换明细字段白名单（transfer|requisition）
 #                     字段标识跨单据类型不通用（踩坑清单#38）：直接调拨单 FSRC*/FDEST* 一族、
 #                     申请单 FSTOCK* 一族。每个任务 pipeline 的**第一个节点**必须先调它，
@@ -108,7 +154,7 @@
 #  UiaCellHasValue    param: {"field": "source_locations", "row": 0}  当前行该字段有值时命中（跳过填写用）
 #                     与 OrderColumnEmpty 同一用途，但读的是界面真实值而不是Excel队列，
 #                     所以能兜住"填了但没填进去"的情况；命中返回占位框(0,0,1,1)，只配分流
-#  UiaHeaderFilled    param: {"field": "target_org", "expect": "东莞"}  单头字段已有值时命中（分流/收尾校验）
+#  UiaHeaderFilled    param: {"field": "target_org", "expect": "<组织名片段>"}  单头字段已有值时命中（分流/收尾校验）
 #                     定位方式与 UiaSetHeaderField 完全一致；expect 是"包含"判据，省略=只要求非空
 #                     命中返回占位框(0,0,1,1)，只配分流用
 #设计约束（为什么这样切）：
@@ -154,8 +200,7 @@ from common import _params  #pipeline 参数解析兜底（写坏打日志返回
 #  申请单 FSTOCK* 一族、列表页第三套。所以白名单分两套，由 UiaSetForm 在任务开头切换：
 #  transfer    直接调拨单（默认，不调 UiaSetForm 时行为与从前完全一致）
 #  requisition 调拨申请单（组织两列=明细列每行必填，按编码写→保存解析外键，probe4/7 实测成立；
-#              仓库/仓位四列非必填，名称形态实测被吞、编码无样本未测、F7 开不出（probe10B~F），
-#              §五交付口径=留空 —— 白名单挂着但属查找类，UiaSetCell 会拒写）
+#              仓库列按编码直写；仓位两列=弹性域，直写一律被吞，必须配 UiaPickFlex 走维度弹窗）
 _CELL_FIELDS_TRANSFER = {
     "material_code": "FMATERIALID",  #物料编码（Column 2）
     "quantity": "FQTY",  #数量（Column 7）
@@ -172,10 +217,10 @@ _CELL_FIELDS_REQUISITION = {
     "note": "FNOTE",  #明细备注（申请单编辑页真名；FNOTEENTRY 在这边不存在）
     "source_org": "FSTOCKORGID",  #调出组织（明细列每行必填，编码→外键实测成立）
     "target_org": "FSTOCKORGINID",  #调入组织（同上）
-    "source_warehouse": "FSTOCKID",  #调出仓库（非必填，留空交付）
-    "source_location": "FSTOCKLOCID",  #调出仓位（非必填，留空交付）
-    "target_warehouse": "FSTOCKINID",  #调入仓库（非必填，留空交付）
-    "target_location": "FSTOCKLOCINID",  #调入仓位（非必填，留空交付）
+    "source_warehouse": "FSTOCKID",  #调出仓库（编码直写，配 UiaSetCell）
+    "source_location": "FSTOCKLOCID",  #调出仓位（弹性域，配 UiaPickFlex；直写会被吞）
+    "target_warehouse": "FSTOCKINID",  #调入仓库（编码直写，配 UiaSetCell）
+    "target_location": "FSTOCKLOCINID",  #调入仓位（弹性域，配 UiaPickFlex；直写会被吞）
 }
 
 _FORM_FIELDS = {
@@ -198,17 +243,24 @@ _CELL_FIELDS = dict(_CELL_FIELDS_TRANSFER)
 
 #只能用 UiaPickList 走查找列表的字段（白名单，挡"用 UiaSetCell 硬写查找字段"这种误配）
 #⚠️这套闸只对**直接调拨单**成立（那边名称/编码直写都没验通，唯一验证过的填法是前台弹窗链路）。
-# 调拨申请单 2026-11-17 probe25/26 实测：**按编码直写解析成立**（CK001→广州极飞仓库、
-#  CK031→委外研发仓），名称直写被吞 —— 所以 requisition 族这边闸是空的，UiaSetCell 直写编码就是正路。
-#  代价是 Excel 仓库/仓位列**必须填编码**（填名称会被金蝶静默吞成空，pipeline 用 UiaReadCell
+# 调拨申请单实测：**按编码直写解析成立**（仓库编码 → 金蝶解析成仓库名称），
+# 名称直写被吞 —— 所以 requisition 族这边闸是空的，UiaSetCell 直写编码就是正路。
+#  代价是 Excel 仓库列**必须填编码**（填名称会被金蝶静默吞成空，pipeline 用 UiaReadCell
 #  nonzero 把关，吞了会当场失败而不是带病保存）。
-#  模糊匹配弹窗（人类打"委外仓"弹列表选行）后台能开弹窗但**不交付**：过滤词语义和手输不一致
+#  模糊匹配弹窗（人工输入关键词弹列表选行）后台能开弹窗但**不交付**：过滤词语义和手输不一致
 #  （probe30）、Enter 提交回填从未可靠验证（probe28/29）、多页签污染下有误写风险 —— 用户口径
 #  "避免出错就不弄"。UiaPickList 保留给直接调拨单侧的后续实验。
+#⚠️2026-11-19 复测订正：上面"仓库/仓位四列都只认编码"这句**只对仓库成立**。
+#  仓位是弹性域（多维值集组合），没有任何单一字符串能解析成它 —— 名称和编码都被吞不是"写法不对"，
+#  是这类字段压根不接受直写。正路是驱动金蝶自己的「维度数据录入」弹窗（UiaPickFlex）。
+#  所以 requisition 族把两个仓位列放回闸里：UiaSetCell 会拒写它们，逼着配 UiaPickFlex。
+#  transfer 族四个列本来就在闸里（那边弹窗触发仍未验证，UiaPickFlex 只在 requisition 交付）。
 _LOOKUP_FIELDS_TRANSFER = frozenset((
     "source_warehouse", "source_location", "target_warehouse", "target_location",
 ))
-_LOOKUP_FIELDS_REQUISITION = frozenset()
+_LOOKUP_FIELDS_REQUISITION = frozenset((
+    "source_location", "target_location",  #仓位=弹性域，只能走 UiaPickFlex
+))
 
 #当前生效的查找类闸（UiaSetForm 原地切内容；默认 transfer = 直接调拨单老行为）
 _LOOKUP_FIELDS = set(_LOOKUP_FIELDS_TRANSFER)
@@ -221,8 +273,8 @@ _LOOKUP_FIELDS = set(_LOOKUP_FIELDS_TRANSFER)
 #  等做 TransferRequisitionForm 时按申请单编辑页的真实标签再对一遍；
 #  对不上时的表现是"找不到标签"直接报错，不会写错地方，可以安全试。
 #查找类字段（组织）写进去之后金蝶要把编码解析成外键，能不能解析成功**尚未实测**：
-#所以配 UiaSetHeaderField 时**必须写 expect**（期望回读到的名称片段，如 103 → "东莞"），
-#否则金蝶只把 "103" 当纯文本显示、底下没绑上组织时，动作会"写入成功"但其实单据是错的。
+#所以配 UiaSetHeaderField 时**必须写 expect**（期望回读到的名称片段，如 组织编码 → 组织名称），
+#否则金蝶只把编码当纯文本显示、底下没绑上组织时，动作会"写入成功"但其实单据是错的。
 _HEADER_FIELDS = {
     "source_org": "调出库存组织",  # 申请单待实测：调出组织
     "target_org": "调入库存组织",  # 申请单待实测：调入组织
@@ -234,6 +286,7 @@ _HEADER_FIELDS = {
     "address": "通讯地址",  # 申请单专用，待实测
     "contact": "联系人",  # 申请单专用，待实测
     "demand_date": "需求日期",  # 申请单专用，待实测
+    "apply_type": "调拨申请类型",  # 申请单专用，KDComboBoxEdit（probe58 实测标签几何配对成立）
 }
 
 #单头编辑框的类名特征。金蝶单头是自绘控件，UIA ControlTypeName 只有 EditControl/ComboBoxControl
@@ -243,6 +296,16 @@ _HEADER_FIELDS = {
 #注意还要**排掉 aid=='PART_Editor' 的内层 TextBox**：它是上面那个复合控件的内部部件，
 #矩形和父控件几乎重合，留着会让同一个字段配出两个候选，分不清该写哪个。
 _HEADER_CLASS_HINTS = ("Edit", "ComboBox", "Spin", "Date")
+
+#单头里的**基础资料字段**（值会被金蝶解析成外键、界面显示名称而不是我们写的编码）。
+#这批字段在 UiaSetHeaderField 里不能按"回读==写入值"判成败：
+#  ①写后立刻回读可能是编码原样（解析发生在保存时，probe7 实测）；
+#  ②也可能直接是名称，而新草稿默认值恰好等于目标值 → before==actual 不等于没写进去
+#    （实测：申请组织默认=当前登录组织，Excel 也填同一个组织，被误判失败）。
+#真正的把关在保存后：pipeline 用 UiaHeaderFilled 验编码有没有解析成名称（VerifyFK 节点）。
+_BASEDATA_HEADER_FIELDS = frozenset((
+    "apply_org", "source_org", "target_org", "applicant",
+))
 
 #field 参数 → 从 OrderItem 取值的函数。
 #为什么不用 getattr(item, field)：field 是 pipeline 里手写的字符串，直接 getattr 能把
@@ -267,6 +330,7 @@ _COLUMN_ATTR_BY_FIELD = {
     "address": lambda it: it.address,
     "contact": lambda it: it.contact,
     "demand_date": lambda it: it.demand_date,
+    "apply_type": lambda it: it.apply_type,
 }
 
 #金蝶主窗口的类名特征（标题是「金蝶云星空」，但类名里的GUID每次重启都变，所以只认前缀）
@@ -338,6 +402,32 @@ def _fg_restore(fg0=None):
         pass
 
 
+def _ensure_window_visible():
+    #2026-11-18 用户实测：没人点最小化，只是**双击了任务栏上的金蝶图标**想切去别的应用
+    #（第一击没反应、第二击缩后台——Windows 经典手势，真实用户天天这么干）。
+    #金蝶一最小化，Win32 给主窗 237×39 的虚拟矩形：单头几何配对、Navigate 到位判据、
+    #工具栏按钮可见性全灭（明细列按容器定界不看可见性，所以形态是"一路绿到单头突然红"）。
+    #协作契约不能写成"用户别最小化"——agent 必须在每个动作开头自己把窗口捞回来。
+    #SW_SHOWNOACTIVATE(4)：恢复显示但**不激活** —— 用户的前台窗口纹丝不动，
+    #金蝶只是回到它底下的层（坐标恢复真实值），几何配对重新可用；
+    #最小化前是最大化态的话，Windows 按最近尺寸还原（docs: most recent size and position）。
+    #⚠️句柄必须走 _find_main_hwnd()（纯 Win32 EnumWindows），**不能用 _main_hwnd()**：
+    #  后者要 ControlFromHandle 拿 COM 对象，而本函数在装饰器里跑于 COM 初始化之前 ——
+    #  2026-11-18 GUI 日志实证：每个任务第一个动作在这里抛"尚未调用 CoInitialize"、
+    #  静默返回 0，最小化根本没被捞回来（第二个动作起才有 COM）。三个 API 全是 Win32，
+    #  本来就不需要 COM —— 别把它接回任何 UIA 调用链上。
+    hwnd = _find_main_hwnd()
+    if not hwnd:
+        return
+    try:
+        user32 = ctypes.windll.user32
+        if user32.IsIconic(hwnd):
+            user32.ShowWindow(hwnd, 4)
+            _log("fg", "金蝶窗口被最小化了（多半是双击了任务栏图标），已恢复显示、不抢你当前的前台")
+    except Exception:
+        pass  #恢复失败不改变动作结果：下面的原逻辑会按"找不到标签"报错并自诊断
+
+
 def _uia_inited(fn):
     #给每个 UIA 动作/识别套上"本线程的 COM 初始化"。
     #为什么必须在里面：agent 的 CustomAction/CustomRecognition 不在 main.py 那个线程跑，
@@ -360,6 +450,7 @@ def _uia_inited(fn):
             return fn(*args, **kwargs)  #依赖缺失时保持原样，由 _require_uia 报缺依赖
         global _FG_ORIG
         _FG_ORIG = _fg_capture()  #动作前记住用户正在看哪个窗口（写入点即时归还读它）
+        _ensure_window_visible()  #金蝶被最小化就先捞回来（SW_SHOWNOACTIVATE，不动用户前台）
         with _uia.UIAutomationInitializerInThread():
             ret = fn(*args, **kwargs)
         _fg_restore()  #兜底：动作内部有 sleep 等解析，写入点已经即时还过一次的话这里无事可做
@@ -511,7 +602,7 @@ def _walk(root, want_type=None, want_aid=None, max_depth=_MAX_DEPTH, stats=None)
 
 
 def _cell_prefix(name):
-    #拆出金蝶格子 Name 里的行号/列号。格式是 "Row 0, Column 10: 广州股份委外仓"；
+    #拆出金蝶格子 Name 里的行号/列号。格式是 "Row 0, Column 10: <该格当前值>"；
     #解析不出来返回 (None, None)，调用方按"无法核对"处理
     text = name or ""
     if not text.startswith("Row "):
@@ -526,7 +617,7 @@ def _cell_prefix(name):
 
 def _read_cell_text(node):
     #读格子当前已提交的值。金蝶的 ValuePattern getter 恒返回空（实测），
-    #所以优先读 Name（形如 "Row 0, Column 10: 广州股份委外仓"），再退化到 TextPattern
+    #所以优先读 Name（形如 "Row 0, Column 10: <该格当前值>"），再退化到 TextPattern
     name = ""
     try:
         name = node.Name or ""
@@ -635,7 +726,7 @@ def _header_rect(node):
 
 def _read_header_value(node, pattern):
     #读单头编辑框当前值。明细格子的 ValuePattern getter 恒为空（见 _read_cell_text 的注释），
-    #但单头这几个控件不是 —— 实测 KDPopupBaseEdit 能直接读出 "广州极飞科技股份有限公司"。
+    #但单头这几个控件不是 —— 实测 KDPopupBaseEdit 能直接读出解析后的完整名称。
     #所以这里 ValuePattern 优先，读不到再退 Name / TextPattern。
     try:
         if pattern is not None:
@@ -713,8 +804,23 @@ def _header_editor(field, tag):
             continue
         edits.append((node, pattern, rect, cls))
     if not labels:
-        print(f"[{tag}] 界面上没有可见的「{label}」标签（当前页不是单据编辑页？"
-              f"还是这张单的标签文本和 _HEADER_FIELDS 里记的不一样？）")
+        #2026-11-18 用户实测：明细列全绿、到单头突然"找不到标签"——真身是**窗口最小化**。
+        #最小化时 Win32 给主窗 237×39 的虚拟矩形，所有元素坐标都落在窗外，
+        #而明细靠容器定界不看可见性，所以只有单头几何配对这条路会断。
+        #报错必须自证这一点，别让下一个人再去猜"标签文本不对"。
+        iconic = False
+        try:
+            iconic = bool(ctypes.windll.user32.IsIconic(_main_hwnd()))
+        except Exception:
+            pass
+        if iconic:
+            print(f"[{tag}] 找不到「{label}」标签——**金蝶窗口当前是最小化的**：最小化时"
+                  f"全树坐标变虚拟值，单头几何配对必失败（明细列不受影响，所以会出现"
+                  f"「前面几步全绿、单头突然全红」的形态）。把窗口还原/最大化再跑；"
+                  f"pipeline 里 UiaNavigate 的 wait_label 把关也有同样的可见性依赖")
+        else:
+            print(f"[{tag}] 界面上没有可见的「{label}」标签（当前页不是单据编辑页？"
+                  f"还是这张单的标签文本和 _HEADER_FIELDS 里记的不一样？）")
         return None
     if not edits:
         print(f"[{tag}] 找到了「{label}」标签，但附近没有任何带 ValuePattern 的编辑框")
@@ -860,13 +966,14 @@ def _cell_node(field, tag, row=0, want_lookup=None):
     return None, None
 
 
-def _type_text(text, key_delay_ms=40):
-    #逐字符输入到金蝶自己窗口。必须走字符消息而不是Ctrl+V：
+def _type_text(text, key_delay_ms=40, hwnd=None):
+    #逐字符输入到金蝶窗口（默认主窗；弹窗/下拉这类独立顶层传 hwnd）。
+    #必须走字符消息而不是Ctrl+V：
     #WPF 组合键读 GetKeyState，后台 PostMessage 不更新修饰键状态，Ctrl+V 在后台必然失效
     #（这是后台粘贴失效的根因，实测确认）
-    #目标只可能是金蝶主窗口：绝不退化到 GetForegroundWindow —— 后台跑时前台是用户的程序，
+    #目标只可能是金蝶自己的窗口：绝不退化到 GetForegroundWindow —— 后台跑时前台是用户的程序，
     #把字符投过去就是"打字打进别人窗口"的事故
-    hwnd = _main_hwnd()
+    hwnd = hwnd or _main_hwnd()
     if not hwnd:
         print("[_type_text] 拿不到金蝶窗口句柄，拒绝投递按键（不能打到用户窗口）")
         return False
@@ -1531,7 +1638,7 @@ class UiaSetCell(CustomAction):
         actual = _read_cell_text(node)
         if not actual:
             #回读空有两种可能：①金蝶把这个值吞了（名称形态的基础资料字段必吞，
-            #  2026-11-17 实测「委外仓」「广州股份委外仓」全称都被吞，还会把格子原值清掉）；
+            #  实测基础资料名称无论简称还是全称都被吞，还会把格子原值清掉）；
             #  ②写入触发了自动增行/重绘，手里这个 node 引用过期了（值其实在新节点上）。
             #所以先重取格子再判 —— 但**重取后还是空就必须失败**：
             #旧版这里静默返回 True，等于"名称形态填进 Excel 就带病往下走"，
@@ -1544,7 +1651,7 @@ class UiaSetCell(CustomAction):
         print(f"[UiaSetCell] {field} ← {value!r}，界面回读 {actual!r}")
         if not actual:
             print(f"[UiaSetCell] {field} 写入后回读仍是空 —— 金蝶把这个值吞了。"
-                  f"基础资料列（仓库/仓位）只认**编码**（CK001 这类），名称形态一律被吞；"
+                  f"基础资料列（仓库/仓位）只认**编码**，名称形态一律被吞；"
                   f"Excel 该列请改填编码，或留空（非必填列留空合法）")
             return False  #吞值=配置/数据错误，重跑一遍也是吞，直接失败让 pipeline 停下
         expect = param.get("expect", "")
@@ -1658,8 +1765,8 @@ class UiaPickList(CustomAction):
 
         actual = _read_cell_text(node)
         #校验必须是**归一化等值**，两头都不能松：
-        #  判"包含"会让选到隔壁行也通过（"广州股份委外仓" in "广州股份委外仓库A"）；
-        #  要求完全等值又会被列表行格式差异搞成假失败（"广州股份委外仓(CK001)" vs "广州股份委外仓"）
+        #  判"包含"会让选到隔壁行也通过（"仓库A" in "仓库A临时仓"）；
+        #  要求完全等值又会被列表行格式差异搞成假失败（"名称(编码)" vs "名称"）
         #所以先剥掉行文本里的括号后缀再比等值 —— 宁可失败也不放过选错行
         matched = any(_normalize_row_text(t) == actual for t in hit_texts if t)
         print(f"[UiaPickList] {field} 选择后界面值 {actual!r}，命中行文本 {hit_texts!r}")
@@ -1671,8 +1778,8 @@ class UiaPickList(CustomAction):
 
 def _normalize_row_text(text):
     #把列表行文本归一成"纯名称"，用于和格子回读值做等值比对。
-    #只剥"末尾像编码"的括号后缀（金蝶列表常显示 "名称(CK247)"），
-    #不能见括号就剥 —— 名字本身可能带括号（"委外仓(临时)" 与 "委外仓(长期)" 会归一成同一个，放行选错行）
+    #只剥"末尾像编码"的括号后缀（金蝶列表常显示 "名称(编码)"），
+    #不能见括号就剥 —— 名字本身可能带括号（"仓库(临时)" 与 "仓库(长期)" 会归一成同一个，放行选错行）
     #所以要求括号后缀短且像编码（无中文、无空格）
     value = (text or "").strip()
     for left, right in (("(", ")"), ("（", "）")):
@@ -1856,15 +1963,32 @@ class UiaSetHeaderField(CustomAction):
                       f"编码没被解析成基础资料的可能性最大（金蝶只把 {value!r} 当文本显示了）")
                 return False
             return True
-        #没写 expect：只能判"值变了没有"。组织/仓库这类查找字段这样判**不安全** ——
-        #金蝶可能把显示值改了但底下没绑上外键，保存时就是一张错单。所以这里大声提醒。
-        #⚠ before==actual 不能直接判失败：调出组织的默认值就是当前登录组织，
-        #若 Excel 两列填了同一个组织，写入后回读当然和原值一样 —— 那是"填对了"不是"没填上"。
-        #所以只有"值没变、且回读里也认不出写入值"才算没写进去（认编码或认名称片段都行）。
-        if before == actual and value not in actual:
+        #没写 expect 时的"没写进去"判据，只对**纯文本字段**成立（电话/地址/联系人/日期：
+        #写什么回读什么，值没变就是没写进去）。
+        #⚠️基础资料字段（组织/申请人）必须跳过这条 —— 2026-11-18 GUI 实测误判：
+        #  新草稿的申请组织默认值=当前登录组织，Excel 也填同一个组织 →
+        #  写入成功、回读当然和原值一样；而写入值是编码、回读是名称，
+        #  "认不出写入值"也成立 → 两条撞上把一张**正确的单**判成失败。
+        #  这类字段写前根本区分不了"我写的"和"默认值恰好相同"（结果本来也一样），
+        #  真正的把关在保存之后：VerifyFK 用 UiaHeaderFilled 验编码有没有解析成名称。
+        is_basedata = field in _BASEDATA_HEADER_FIELDS
+        #需求日期也跳过"值没变=没写进去"判据：金蝶把 2026/11/18 重排成 2026-11-18 00:00:00，
+        #"认不出写入值"对日期**必然成立**（分隔符/补零/时间尾巴全不同）；新草稿默认恰好是当天时
+        #before==actual 也成立 → 两条撞上会把一张正确的单误杀（和申请组织同一类坑，只是还没轮到它报）。
+        if field == "demand_date":
+            if not actual:
+                print(f"[UiaSetHeaderField] demand_date 写入后回读是空，判失败")
+                return False
+            print(f"[UiaSetHeaderField] demand_date 已写入（回读={actual!r}）；"
+                  f"日期格式金蝶会重排，不做等值校验，真错单由保存后的单据本身把关")
+            return True
+        if not is_basedata and before == actual and value not in actual:
             print(f"[UiaSetHeaderField] 回读和原值一模一样、也认不出写入值 {value!r}（{actual!r}），判为没写进去")
             return False
-        if field.endswith("_org") or field == "apply_org" or field == "applicant":
+        if is_basedata:
+            if not actual:
+                print(f"[UiaSetHeaderField] {field}「{_HEADER_FIELDS.get(field)}」写入后回读是空，判失败")
+                return False
             #11-16 probe7 实测：编码→名称的外键解析发生在**保存提交时**，写后立刻回读还是编码原样。
             #所以这里不判失败、也不催 expect（expect 在这类字段上必误判），只提醒校验位置。
             print(f"[UiaSetHeaderField] {field} 已写入（回读={actual!r}）。"
@@ -2059,6 +2183,9 @@ class UiaNavigate(CustomAction):
                 #这个轮询最长 budget（pipeline 里配到 60s）——不在这儿还，
                 #用户窗口就要替金蝶白占整整一段加载时间。_fg_restore 只在
                 #前台确实是金蝶主窗时动手，页面加载完/本来没偷时是空操作。
+                #_ensure_window_visible 同款理由：60s 窗口足够用户双击一次任务栏图标，
+                #中途被最小化的话后面每轮配对都会瞎，每轮捞一次（IsIconic 查询很便宜）。
+                _ensure_window_visible()
                 _fg_restore()
                 _reset_cache()  #页面在变，每轮重新认树
                 if ready():
@@ -2210,3 +2337,1246 @@ class UiaInvokeButton(CustomAction):
         time.sleep(max(0, post_wait_ms) / 1000.0)  #给界面跳转留时间（保存→列表约2-3s）
         print(f"[UiaInvokeButton] 已 Invoke「{name}」，等 {post_wait_ms}ms")
         return True  #Invoke 不抛即算发出；生效与否由下一个节点（识别/回读）把关
+
+
+@AgentServer.custom_action("UiaPickCombo")  #组合框下拉选择（Expand+DoDefaultAction，全程后台）
+class UiaPickCombo(CustomAction):
+
+    @_uia_inited  #本线程要自己初始化 COM，否则整棵 UIA 树枚举不了
+    def run(
+            self,
+            context: Context,
+            argv: CustomAction.RunArg,
+    ) -> bool:
+
+        if not _require_uia("UiaPickCombo"):
+            return False
+        _reset_cache()  #每个动作重新认窗口，不跨动作复用旧句柄
+        param = _params(argv)  #拉取参数
+        if param is None:
+            return False
+        field = param.get("field", "")
+        found = _header_editor(field, "UiaPickCombo")
+        if found is None:
+            return False  #标签配对失败（不是编辑页/标签不对），_header_editor 已经报过原因
+        node, pattern, label_rect, edit_rect, cls = found
+
+        value = param.get("value")
+        value = str(value) if value is not None else _header_value_from_order(field, param)
+        if value is None:
+            print(f"[UiaPickCombo] 没给 value，Excel 队列里也取不到 {field}（字段名不在取值白名单里？）")
+            return False
+        if value == "":
+            #空值=保留金蝶默认选项、什么都不动（和 UiaSetCell 空值语义一致）
+            print(f"[UiaPickCombo] {field} 没有值（Excel空值），保留金蝶默认选项")
+            return True
+
+        try:
+            current = str(pattern.Value or "")
+        except Exception:
+            current = ""
+        if current == value:
+            #现值已经等于目标值（金蝶默认值恰好正确，或重跑上一轮已选过）→ 不展开不点击
+            print(f"[UiaPickCombo] {field}「{_HEADER_FIELDS.get(field)}」现值已是 {value!r}，无需选择")
+            return True
+
+        try:
+            ecp = node.GetPattern(_uia.PatternId.ExpandCollapsePattern)
+        except Exception:
+            ecp = None
+        if ecp is None:
+            print(f"[UiaPickCombo] {field}「{_HEADER_FIELDS.get(field)}」不是组合框（{cls} @ {edit_rect}），"
+                  f"纯文本走 UiaSetHeaderField、基础资料走 UiaSetCell")
+            return False
+
+        #匹配必须**等值**：下拉项每个公司/账套不一样，用包含匹配会把「选项甲」错选成「选项甲临时」这类
+        #相近项静默填错。找不到 → 日志列出全部可选项，让改 Excel，绝不「差不多选一个」
+        def scan_options():
+            #下拉项可能挂在主窗树，也可能挂在同进程的独立 Popup 顶层窗口（probe58 两处都出现过，
+            #随渲染时机二选一），两个来源都扫；同名项在两处各出现一次，按名字去重、目标取首个活引用。
+            tgt, opts = None, []
+            roots = [_main_window()]
+            try:
+                pid = _main_pid()
+                base = _main_hwnd()
+                for w in _uia.GetRootControl().GetChildren():
+                    try:
+                        if w.ProcessId == pid and w.NativeWindowHandle != base:
+                            roots.append(w)
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+            for root in roots:
+                if root is None:
+                    continue
+                for it in _walk(root, want_type="ListItemControl", max_depth=18):
+                    try:
+                        nm = (it.Name or "").strip()
+                        if not nm or _is_offscreen(it):
+                            continue
+                    except Exception:
+                        continue
+                    if nm in opts:
+                        continue
+                    opts.append(nm)
+                    if nm == value and tgt is None:
+                        tgt = it
+            return tgt, opts
+
+        #展开前**强制归位**：ExpandCollapse 是开关不是"打开"指令。上一轮 Enter 提交后下拉状态未知，
+        #直接 Expand() 有可能正好把它关掉（2026-11-18 T5 实测：连续调用后 可选项=[]）。
+        #每轮先 Collapse 再 Expand 把状态钉成"开着"，扫不到目标就再来一轮（渲染慢的兜底）。
+        target, options = None, []
+        for attempt in range(2):
+            try:
+                ecp.Collapse()
+            except Exception:
+                pass
+            time.sleep(0.4)
+            try:
+                ecp.Expand()
+            except Exception as exc:
+                print(f"[UiaPickCombo] {field} 第 {attempt + 1} 轮 Expand 异常: {exc!r}")
+                break
+            time.sleep(1.2)  #等下拉项渲染进树（probe58：Expand 后 ListItem 直接挂主窗树/Popup）
+            _reset_cache()
+            target, options = scan_options()
+            if target is not None:
+                break
+        if target is None:
+            try:
+                ecp.Collapse()
+            except Exception:
+                pass
+            print(f"[UiaPickCombo] {field} 下拉里没有 {value!r}。可选项={options}。"
+                  f"Excel 该格改成上面某个可选项再跑（每个账套选项不同，这里不猜）")
+            return False
+
+        #提交序列（2026-11-18 probe60 对照实测，S3 路线成立且最干净）：
+        #  Expand() → SelectionItem.Select() 高亮 → PostMessage Enter 到主窗 = 提交。
+        #三条失败路都钉过：只 Select 不高亮提交（probe59 路A）；Select+DoDefaultAction
+        #对同一旧对象（T2/T4 实测回读不变）；双展开 DoDefaultAction 虽成立（S2）但要收起
+        #再展开、还依赖鼠标语义。S3 全程 PostMessage，不碰鼠标、DoDefaultAction 那种
+        #偷焦点也没有，Enter 走金蝶自己的"确认当前高亮项"逻辑。
+        try:
+            sip = target.GetPattern(_uia.PatternId.SelectionItemPattern)
+            if sip is None:
+                raise RuntimeError("目标项没有 SelectionItemPattern")
+            sip.Select()
+            time.sleep(0.4)
+        except Exception as exc:
+            print(f"[UiaPickCombo] {field} 高亮 {value!r} 失败: {exc!r}")
+            try:
+                ecp.Collapse()
+            except Exception:
+                pass
+            return False
+        hwnd = _main_hwnd()
+        if not hwnd:
+            print(f"[UiaPickCombo] {field} 拿不到主窗口句柄，发不了确认回车")
+            return False
+        user32 = ctypes.windll.user32
+        scan = user32.MapVirtualKeyW(0x0D, 0)
+        user32.PostMessageW(ctypes.c_void_p(hwnd), 0x0100, 0x0D, ctypes.c_void_p(1 | (scan << 16)))
+        user32.PostMessageW(ctypes.c_void_p(hwnd), 0x0101, 0x0D, ctypes.c_void_p(1 | (scan << 16) | 0xC0000000))
+        time.sleep(1.2)
+
+        #回读必须**重新配对**再读：点击提交后金蝶可能重建控件，旧引用读到的是缓存值
+        actual = ""
+        again = _header_editor(field, "UiaPickCombo")
+        if again is not None:
+            try:
+                actual = str(again[1].Value or "")
+            except Exception:
+                actual = ""
+        print(f"[UiaPickCombo] {field}「{_HEADER_FIELDS.get(field)}」"
+              f"{current!r} → 选 {value!r}，回读={actual!r}")
+        if actual != value:
+            print(f"[UiaPickCombo] 回读和所选不一致：金蝶没接住这次点击（或下拉被别的东西吃了），判失败")
+            return False
+        return True  #组合框是枚举值不是基础资料，等值回读就是最终校验，没有"保存才解析"的后账
+
+
+#── UiaPickFlex：弹性域（仓位这类多维值集组合字段）的维度录入弹窗驱动 ──
+#
+#为什么不能像仓库那样直写：仓库是单一基础资料（编码→外键，金蝶能解析），
+#仓位是**值集组合值** —— 一个格子要接收 N 个维度的组合，没有哪个字符串能唯一确定它，
+#所以名称/编码/编码+名称/仓库+编码 全被吞（实测）。正路只有驱动金蝶自己的弹窗。
+#
+#为什么必须"点"而不能 Expand/F7：放大镜是金蝶自绘的，
+#在 UIA 树里**没有任何对应元素**（格子内层只有 ButtonEdit + PART_Editor 文本块，
+#Expand()/F7/Legacy DoDefaultAction/右键/批量填充 全部实测开不出弹窗）。
+#但"点"是 PostMessage 到主窗口，不碰用户鼠标键盘，所以仍然是无人值守的。
+#
+#坐标怎么做到不怕用户改列宽/列顺序/DPI：
+#  ①所有落点都从**格子自己的 UIA 矩形**按比例算，列宽变了 rect 跟着变，落点自动跟着变；
+#  ②放大镜位置给一组候选（右缘内 3%~12% 宽 × 纵向 40%/50%/60% 高），
+#    命中判据是"弹窗真的出现了"而不是"我点完了"，所以猜错只多试一次，绝不会写错数据；
+#  ③列被横向滚出视口时先用明细网格的 ScrollPattern 滚回来，
+#    滚不回来就直接失败并说明原因 —— 不拿窗外坐标瞎点（窗外坐标等于点到别的控件，事故级）。
+_FLEX_MAGNIFIER_X_FRACS = (0.05, 0.03, 0.08, 0.12, 0.02, 0.00)  #距右缘多少个"列宽"
+_FLEX_MAGNIFIER_Y_FRACS = (0.50, 0.40, 0.60)  #距顶边多少个"行高"
+_FLEX_DIALOG_WAIT_MS = 3000  #一次候选点击后等录入窗的时间。
+#实测所有成功路径里录入窗都在第 1~2 个候选位、3s 内出现。
+#真正的坑不是"等太短"，而是**等不到就在候选之间关窗** ——
+#迟到的合法录入窗会被当成"点歪弹出的杂物"关掉，下一个候选重开的窗带着坏掉的查询状态
+#（值集列表 0 行）。所以循环里绝不关窗，见下面的候选循环注释
+_FLEX_LIST_WAIT_MS = 6000  #等值集列表弹出的时间
+_FLEX_DROPDOWN_WAIT_MS = 4000  #打字后等「模糊匹配下拉」的时间（实测 2.5s 内出现）
+_FLEX_MAX_PAGES = 12  #值集列表最多翻几页（首页只渲染十几行，目标常在后面）
+
+
+#金蝶这两类弹窗的固定标题（产品自带文案，不是账套数据）。
+#为什么还要按标题认一遍、不全靠形状判据：值集列表窗的工具栏按钮是 返回/过滤/刷新/退出 + closeButton，
+#**没有「取消」**，也没有 KDPopupBaseEdit —— 两个形状判据都认不出它（实测 _looks_like_selector=False、
+#_flex_dialog_shape=False）。于是上一轮失败留下的列表窗永远关不掉，
+#而金蝶下一次开列表会**复用同一个句柄**，那个句柄在"调用前基线"里 →
+#_wait_flex_list 把它当旧窗滤掉 → 报"列表没出来"，其实是清理盲区（2026-11-19 GUI 实测整轮失败的真因）
+_FLEX_DIALOG_TITLE = "维度数据录入"
+_FLEX_LIST_TITLE = "值集资料选择列表"
+
+#仓位列 → 必须先填好的仓库列。仓库为空时仓位格是禁用态（里面只有 TextBlock，没有编辑控件），
+#点了也不会有任何反应 —— 历史上一批"仓位写不进/弹窗开不出"的结论全是在这个禁用态下测的。
+_FLEX_PREREQ_WAREHOUSE = {
+    "source_location": "source_warehouse",
+    "target_location": "target_warehouse",
+}
+
+
+def _post_click(hwnd, x, y, double=False):
+    #PostMessage 合成一次左键点击（可选双击）。全程不移动用户光标、不动用户键盘。
+    #WM_MOUSEACTIVATE 的参数按实测生效的那组写（wParam=窗口句柄、lParam=0x0101）——
+    #PostMessage 不取返回值，所以这组"不规范"的实参和金蝶自己的响应互不相干，
+    #换成规范值没有额外收益，别改（改了就是拿未验证的写法替换已验证的写法）
+    #⚠️lparam 必须按 c_void_p 传：WM_LBUTTONUP 那类消息的 lParam 高位是坐标，
+    #  默认 argtypes 会按有符号 32 位截 → 坐标超过 2^31 时直接 OverflowError
+    user32 = ctypes.windll.user32
+    user32.PostMessageW.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_void_p]
+    user32.PostMessageW.restype = ctypes.c_bool
+    pt = wintypes.POINT(int(x), int(y))
+    user32.ScreenToClient(hwnd, ctypes.byref(pt))
+    lparam = (pt.y << 16) | (pt.x & 0xFFFF)
+    try:
+        user32.PostMessageW(ctypes.c_void_p(hwnd), 0x0021, hwnd, ctypes.c_void_p(0x0101))  # WM_MOUSEACTIVATE
+        time.sleep(0.07)
+        user32.PostMessageW(ctypes.c_void_p(hwnd), 0x0200, 0, ctypes.c_void_p(lparam))  # WM_MOUSEMOVE
+        time.sleep(0.07)
+        if double:
+            user32.PostMessageW(ctypes.c_void_p(hwnd), 0x0203, 1, ctypes.c_void_p(lparam))  # WM_LBUTTONDBLCLK
+            time.sleep(0.06)
+        user32.PostMessageW(ctypes.c_void_p(hwnd), 0x0201, 1, ctypes.c_void_p(lparam))  # WM_LBUTTONDOWN
+        time.sleep(0.06)
+        user32.PostMessageW(ctypes.c_void_p(hwnd), 0x0202, 0, ctypes.c_void_p(lparam))  # WM_LBUTTONUP
+    except Exception as exc:
+        print(f"[_post_click] 投递点击失败: {exc!r}")
+        return False
+    time.sleep(0.2)
+    return True
+
+
+def _post_key(hwnd, vk):
+    #PostMessage 一个虚拟键（按下+抬起）。只投给金蝶自己的窗口，绝不全局注入（踩坑清单#40）
+    #argtypes 同 _post_click：释放键的 lParam 带 0xC0000000 那一位，必须走 c_void_p
+    user32 = ctypes.windll.user32
+    user32.PostMessageW.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_void_p]
+    user32.PostMessageW.restype = ctypes.c_bool
+    scan = user32.MapVirtualKeyW(vk, 0)
+    try:
+        user32.PostMessageW(ctypes.c_void_p(hwnd), 0x0100, vk, ctypes.c_void_p(1 | (scan << 16)))
+        time.sleep(0.05)
+        user32.PostMessageW(ctypes.c_void_p(hwnd), 0x0101, vk, ctypes.c_void_p(0xC0000001 | (scan << 16)))
+    except Exception as exc:
+        print(f"[_post_key] 投递按键 vk={vk:#04x} 失败: {exc!r}")
+        return False
+    time.sleep(0.05)
+    return True
+
+
+def _force_foreground(hwnd):
+    #把前台**强制**交给指定窗口，绕开 Windows 前台锁。
+    #为什么必须有：WPF 的命中测试要求窗口处于激活态 —— 实测（2026-11-19）
+    #  列已滚进视口 + 前台是别的应用 → PostMessage 点击**完全没反应**，弹窗开不出来；
+    #  同一坐标 + 前台是金蝶 → 弹窗立刻出现。
+    #裸 SetForegroundWindow 会被前台锁拒（返回 False、前台纹丝不动，实测踩过），
+    #所以走 AttachThreadInput：把自己的输入线程临时挂到当前前台的线程上，
+    #这段时间内 SetForegroundWindow 就被系统放行，摘掉附件再恢复原状。
+    #⚠️调用方必须在动作结尾用 _fg_restore 把前台还给用户，否则等于长期霸屏
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    try:
+        tid_self = kernel32.GetCurrentThreadId()
+        current = int(user32.GetForegroundWindow() or 0)
+        tid_cur = user32.GetWindowThreadProcessId(current, None) if current else 0
+        for _ in range(3):
+            attached = False
+            if tid_cur and tid_cur != tid_self:
+                attached = bool(user32.AttachThreadInput(tid_self, tid_cur, True))
+            try:
+                user32.BringWindowToTop(hwnd)
+                user32.SetForegroundWindow(hwnd)
+                user32.SetActiveWindow(hwnd)
+            finally:
+                if attached:
+                    user32.AttachThreadInput(tid_self, tid_cur, False)
+            time.sleep(0.35)
+            if int(user32.GetForegroundWindow() or 0) == hwnd:
+                return True
+        return False
+    except Exception as exc:
+        print(f"[_force_foreground] 异常: {exc!r}")
+        return False
+
+
+def _hold_foreground(hwnd, tag, doing):
+    #每次要投递点击/按键之前，确认前台还在目标窗口上；被抢走就当场抢回来。
+    #
+    #为什么不能"动作开头抢一次就够了"（2026-11-19 GUI 实测的整轮失败根因）：
+    #本动作从抢前台到点完放大镜，中间夹着十几秒横滚 + 最多 18 个候选位约 60 秒，
+    #这期间企业微信 / UU远程 / 各类弹窗会把前台抢走（日志抓到的原话：
+    #  候选 1 前台=196706(企业微信) 目标窗=132442 → 候选 2 前台=1773176 → 18 个全空）。
+    #WPF 的命中测试要求窗口处于激活态，前台不在金蝶时 PostMessage 点击**完全没反应**，
+    #于是 18 次点击全部白打，现象却是"放大镜开不出弹窗"，极易误判成坐标问题。
+    #
+    #抢不到就返回 False 让调用方立刻止损：继续试只会再白烧几十秒，
+    #而且日志里会留下"试了 18 个候选位"这种把环境问题伪装成坐标问题的误导结论
+    user32 = ctypes.windll.user32
+    try:
+        if int(user32.GetForegroundWindow() or 0) == int(hwnd):
+            return True
+    except Exception:
+        return False
+    if _force_foreground(hwnd):
+        return True
+    try:
+        stolen = int(user32.GetForegroundWindow() or 0)
+    except Exception:
+        stolen = 0
+    print(f"[{tag}] {doing} 之前前台不在目标窗口（现在={stolen}，目标={int(hwnd)}），"
+          f"且抢不回来 —— 停止尝试。继续投递点击只会在非激活窗口上白打，"
+          f"现象和「放大镜位置不对」一模一样，别往坐标上查")
+    return False
+
+
+def _flex_dialog_shape(win):
+    #判断一个顶层窗口是不是「维度数据录入」这类弹性域录入窗。
+    #判据用结构不用标题（标题是金蝶界面文案，会随版本/语言变）：
+    #  ① 有可见的 KDPopupBaseEdit（维度值输入框）
+    #  ② 有可见的「确定」和「取消」（录入窗的固定按钮对）
+    #两条都要，少一条就可能是别的弹窗（比如查找列表也有确定/取消，但它没有 KDPopupBaseEdit）
+    has_edit = False
+    names = set()
+    for node in _walk(win, want_type="EditControl", max_depth=14):
+        try:
+            if node.ClassName == "KDPopupBaseEdit" and not _is_offscreen(node):
+                has_edit = True
+                break
+        except Exception:
+            continue
+    if not has_edit:
+        return False
+    for button in _walk(win, want_type="ButtonControl", max_depth=14):
+        try:
+            if not _is_offscreen(button):
+                names.add(_safe_name(button))
+        except Exception:
+            continue
+    return "确定" in names and "取消" in names
+
+
+def _kingdee_top_controls(exclude=None):
+    #枚举金蝶进程当前**可见**的顶层窗口，返回 [(句柄, UIA控件)]。
+    #
+    #⚠️为什么用 Win32 EnumWindows 而不是 _uia.GetRootControl().GetChildren()：
+    #「维度数据录入」和它的值集列表都是带 owner 的 WPF 弹窗，实测（2026-11-19）
+    #它们出现在 EnumWindows 里、用 ControlFromHandle 拿到的控件形状判据也成立
+    #（pid 对、不是主窗、不在基线），但**不在 UIA 根节点的子列表中**。
+    #按根子节点轮询就永远等不到，表现成"点了 18 个候选位都没弹窗"，
+    #其实是检测方式看不见它 —— UiaPickList 用的 _wait_popup_rows 走的正是那条路，
+    #本动作不复用它，原因同上。
+    user32 = ctypes.windll.user32
+    pid = _main_pid()
+    if not pid:
+        return []
+    #主窗句柄两条路都取，任一命中就跳过：
+    #_main_hwnd() 依赖 COM（本函数可能在 COM 就绪前被调），_find_main_hwnd() 是纯 Win32。
+    #⚠️这里绝不能只信一个 —— _looks_like_selector 对主窗本身返回 True
+    #（主窗有 DataItem 行 + 隐藏预置的确定/取消按钮，实测成立），
+    #主窗一旦被当成"残留弹窗"，清理动作就会在单据页上点「取消」= 关掉用户正在填的单
+    protected = {h for h in (_main_hwnd(), _find_main_hwnd()) if h}
+    exclude = set(exclude or ())
+    found = []
+    EnumProc = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+
+    def callback(hwnd, _lparam):
+        try:
+            proc_id = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(proc_id))
+            if proc_id.value != pid or int(hwnd) in protected or int(hwnd) in exclude:
+                return True
+            if not user32.IsWindowVisible(hwnd):
+                return True
+            rect = wintypes.RECT()
+            user32.GetWindowRect(hwnd, ctypes.byref(rect))
+            if rect.right - rect.left < 100 or rect.bottom - rect.top < 60:
+                return True  #气泡/工具条一类的小窗，不可能是我们要的弹窗
+            found.append(int(hwnd))
+        except Exception:
+            return True
+        return True
+
+    try:
+        user32.EnumWindows(EnumProc(callback), 0)
+    except Exception:
+        return []
+    out = []
+    for handle in found:
+        try:
+            out.append((handle, _uia.ControlFromHandle(handle)))
+        except Exception:
+            continue
+    return out
+
+
+def _kingdee_top_handles():
+    #本轮"已存在"的顶层句柄基线。
+    #⚠️不能用 _top_handles()：它走 UIA 根子节点，而录入窗/值集列表恰恰不在那里（见
+    #_kingdee_top_controls 的注释）—— 那样基线里永远没有这些弹窗，
+    #上一轮残留的录入窗就会被当成"本轮新弹出来的"，对着它里头的旧维度值提交 = 静默写错仓位
+    return {handle for handle, _win in _kingdee_top_controls()}
+
+
+def _wait_flex_dialog(exclude, timeout_ms=_FLEX_DIALOG_WAIT_MS):
+    #等一个"新的、属于金蝶的、形状像弹性域录入窗"的顶层窗口。
+    #exclude 是调用前的顶层句柄基线 —— 上一轮残留的录入窗必须排除掉，
+    #否则会把旧窗当成本次的，然后对着旧窗里别的维度值提交，静默写错仓位
+    deadline = time.time() + timeout_ms / 1000.0
+    while time.time() < deadline:
+        for _handle, win in _kingdee_top_controls(exclude):
+            try:
+                if _flex_dialog_shape(win):
+                    return win
+            except Exception:
+                continue
+        time.sleep(_POLL_MS / 1000.0)
+    return None
+
+
+def _wait_flex_list(exclude, timeout_ms=_FLEX_LIST_WAIT_MS):
+    #等值集列表弹出，返回 (窗口控件, 带文本的 DataItem 行)。
+    #枚举走 _kingdee_top_controls（这些弹窗不在 UIA 根子节点里，见那里的注释）。
+    #
+    #⚠️必须把"窗口出现了"和"窗口里有行了"分开返回：
+    #金蝶查询偶发慢一拍 —— 窗先到、行后到，甚至这一轮根本不给行。
+    #旧写法只在有行时才返回窗口，"有窗无行"也回 (None, [])，
+    #调用方就分不清该重试还是该放弃（重试分支变成死代码，实测整轮白等 6s×3）
+    #返回 (None, []) = 窗口始终没出现；(窗口, []) = 窗口在但没数据
+    deadline = time.time() + timeout_ms / 1000.0
+    seen = None
+    while time.time() < deadline:
+        for _handle, win in _kingdee_top_controls(exclude):
+            try:
+                if not _looks_like_flex_list(win):
+                    continue
+                seen = win
+                rows = [c for c in _walk(win, want_type="DataItemControl") if _safe_name(c)]
+                if rows:
+                    return win, rows
+            except Exception:
+                continue
+        time.sleep(_POLL_MS / 1000.0)
+    return seen, []
+
+
+def _looks_like_flex_list(win):
+    #形状判据：有 DataItem 行，或有列表专属的翻页按钮（bNext/bPrev 之一）。
+    #加第二条是因为"窗到了、行还没到"的窗口里 DataItem 数为 0，
+    #只按行判就认不出它，等于回到旧写法的盲区
+    try:
+        if [c for c in _walk(win, want_type="DataItemControl", max_depth=12) if _safe_name(c)]:
+            return True
+    except Exception:
+        return False
+    for button in _walk(win, want_type="ButtonControl", max_depth=12):
+        try:
+            if (getattr(button, "AutomationId", "") or "") in ("bNext", "bPrev"):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _dump_flex_windows(tag):
+    #把金蝶当前所有可见顶层窗口打出来。只在失败路径调用。
+    #为什么要：这一串环节的失败原因高度同形（"弹窗没出来/列表没出来"），
+    #光看这句日志下一步只能瞎猜。窗口清单能一眼区分三种情况：
+    #  什么都没有 → 点击没生效（坐标/前台问题）
+    #  有录入窗没有列表窗 → Invoke 没开列表
+    #  两个都有 → 是检测判据没认出来，不是没弹
+    try:
+        handles = _kingdee_top_controls()
+    except Exception as exc:
+        print(f"[{tag}] 窗口清单读取异常: {exc!r}")
+        return
+    if not handles:
+        print(f"[{tag}] 金蝶当前没有任何非主窗顶层窗口")
+        return
+    for handle, win in handles:
+        try:
+            title = (win.Name or "")[:24]
+            flex = _flex_dialog_shape(win)
+            #max_depth 必须和 _wait_flex_list 用的同一个值：
+            #这里写小了会数到 0 行，把"判据没认出来"误报成"列表是空的"，自诊断反而骗下一个人
+            rows = len([c for c in _walk(win, want_type="DataItemControl") if _safe_name(c)])
+            print(f"[{tag}]   hwnd={handle} title={title!r} 录入窗形状={flex} 数据行={rows}")
+        except Exception:
+            print(f"[{tag}]   hwnd={handle} 读取异常")
+
+
+def _flex_edit_of(dialog):
+    #取录入窗里的维度值输入框（KDPopupBaseEdit）
+    for node in _walk(dialog, want_type="EditControl", max_depth=16):
+        try:
+            if node.ClassName == "KDPopupBaseEdit" and not _is_offscreen(node):
+                return node
+        except Exception:
+            continue
+    return None
+
+
+def _flex_magnifier_of(edit):
+    #取输入框自己的放大镜按钮（aid=PART_Item，带 Invoke）。
+    #⚠️这是**弹窗里**的放大镜 —— 它和明细格子那个不一样，这个是正经 WPF Button，
+    #UIA 里能拿到、Invoke 有效（实测能开出值集列表）。明细格子里那个是自绘的，拿不到。
+    for node in _walk(edit, want_type="ButtonControl", max_depth=8):
+        try:
+            if (getattr(node, "AutomationId", "") or "") != "PART_Item":
+                continue
+            if node.GetPattern(_uia.PatternId.InvokePattern) is not None:
+                return node
+        except Exception:
+            continue
+    return None
+
+
+def _flex_inner_textbox(edit):
+    #找 KDPopupBaseEdit 内层真正的 TextBox。
+    #⚠️WM_CHAR 要打进"有键盘焦点的输入控件"才会走金蝶的文本变更事件 —— 实测 SetValue 赋值
+    #不触发模糊下拉，只有逐字符输入触发；而逐字符前必须先把焦点放进这个内层 TextBox
+    for node in _walk(edit, want_type="EditControl", max_depth=8):
+        try:
+            if node.ClassName == "TextBox":
+                return node
+        except Exception:
+            continue
+    return None
+
+
+def _wait_flex_dropdown(exclude, keyword, timeout_ms=_FLEX_DROPDOWN_WAIT_MS):
+    #等「全模糊匹配」下拉：打字后新出现的可见顶层窗（实测无标题、带 DataItem 行）。
+    #返回 (下拉窗, 命中 keyword 的行)。窗没出现 → (None, [])；出现了但没命中 → (窗, [])
+    deadline = time.time() + timeout_ms / 1000.0
+    while time.time() < deadline:
+        for _handle, win in _kingdee_top_controls(exclude):
+            try:
+                rows = [c for c in _walk(win, want_type="DataItemControl", max_depth=16)
+                        if _safe_name(c)]
+                if not rows:
+                    continue
+                matched = [c for c in rows if any(keyword in t for t in _row_texts(c))]
+                return win, matched
+            except Exception:
+                continue
+        time.sleep(_POLL_MS / 1000.0)
+    return None, []
+
+
+def _flex_dropdown_pick(dialog, dialog_handle, edit, keyword, tag):
+    #「模糊匹配下拉」支路（用户人工路径的脚本化，2026-11-19 实测打通）：
+    #  清空输入框 → 焦点进内层 TextBox → 逐字 WM_CHAR 输入 keyword →
+    #  金蝶自动弹「全模糊匹配」下拉（它按相似度只给最相关的几行，天然比全量列表准）→
+    #  双击唯一命中行 → 输入框回显编码 = 选中成功，交回调用方点「确定」。
+    #为什么优先走这条：PART_Item 的「值集资料选择列表」是另一条查询，实测会返回空
+    #（账套/会话状态相关，见 UiaPickFlex 失败记录）；而下拉支路不依赖它。
+    #返回 "ok"=已选中 / "fallback"=下拉没出现（交回旧支路）/ "abort"=出现但歧义或无命中（弹窗已取消）
+    try:
+        edit.GetPattern(_uia.PatternId.ValuePattern).SetValue("")
+    except Exception:
+        return "fallback"
+    time.sleep(0.4)
+    inner = _flex_inner_textbox(edit)
+    if inner is not None:
+        try:
+            inner.SetFocus()
+            time.sleep(0.4)
+        except Exception:
+            pass
+    base = _kingdee_top_handles()
+    if not _type_text(keyword, key_delay_ms=150, hwnd=dialog_handle):
+        print(f"[{tag}] 往录入窗投字符失败，退回值集列表支路")
+        return "fallback"
+    win, matched = _wait_flex_dropdown(base, keyword)
+    if win is None:
+        print(f"[{tag}] 打字后没出模糊下拉，退回值集列表支路")
+        return "fallback"
+    if not matched:
+        print(f"[{tag}] 模糊下拉出现了但没有含 {keyword!r} 的行 —— 值集里没有这个值，"
+              f"Excel 该列改成下拉里真实出现的名称，或留空（仓位非必填）")
+        _invoke_named(dialog, "取消")
+        return "abort"
+    if len(matched) > 1:
+        print(f"[{tag}] 模糊下拉有 {len(matched)} 行都含 {keyword!r}，歧义不选。"
+              f"Excel 该列写得更具体一点（用全称）")
+        _invoke_named(dialog, "取消")
+        return "abort"
+    rect = _header_rect(matched[0])
+    if not rect:
+        return "fallback"
+    try:
+        dd_handle = int(win.NativeWindowHandle) or dialog_handle
+    except Exception:
+        dd_handle = dialog_handle
+    _post_click(dd_handle, (rect[0] + rect[2]) / 2.0, (rect[1] + rect[3]) / 2.0, double=True)
+    time.sleep(1.5)
+    try:
+        echo = str(edit.GetPattern(_uia.PatternId.ValuePattern).Value or "")
+    except Exception:
+        echo = ""
+    #判据：输入框从 keyword 变成编码（金蝶选中行后回显的是代码不是名称）。
+    #echo 恰好等于 keyword 时（用户本来就填的编码）无法用"变了没"判定 → 交回旧支路重选，
+    #方向是安全的：最多多走一条支路，不会静默选错行
+    if echo and echo != keyword:
+        print(f"[{tag}]   模糊下拉命中，输入框回显编码={echo!r}")
+        return "ok"
+    print(f"[{tag}]   双击后输入框={echo!r}，金蝶没接住这次选中，退回值集列表支路")
+    return "fallback"
+
+
+def _invoke_named(root, name):
+    #按 Name 点一个可见按钮，返回是否点到
+    for button in _walk(root, want_type="ButtonControl", max_depth=20):
+        try:
+            if _safe_name(button) != name or _is_offscreen(button):
+                continue
+            invoke = button.GetPattern(_uia.PatternId.InvokePattern)
+            if invoke is not None:
+                invoke.Invoke()
+                time.sleep(0.5)
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _flex_page_next(root):
+    #值集列表底部翻页按钮 aid=bNext。翻到下一页，返回是否翻页成功。
+    #为什么必须翻页：金蝶列表**只渲染当前页**（实测首页 13 行），
+    #目标仓位排在后面时"没命中"不等于"不存在" —— 不翻页就报"找不到"会误杀正常单据
+    for button in _walk(root, want_type="ButtonControl", max_depth=20):
+        try:
+            if (getattr(button, "AutomationId", "") or "") != "bNext":
+                continue
+            invoke = button.GetPattern(_uia.PatternId.InvokePattern)
+            if invoke is None:
+                continue
+            invoke.Invoke()
+            time.sleep(1.2)
+            return True
+        except Exception:
+            continue
+    return False
+
+
+def _grid_scroll_pattern(tag, node=None):
+    #取明细网格的横向 ScrollPattern（实测只有可见的那个 DataGridControl HorizontallyScrollable=True）。
+    #优先从格子往上爬祖先链找 DataGridControl —— 格子就在网格里，爬十几层、十几个 COM 调用；
+    #全树遍历要几千个调用、实测 15~25s，能免则免。爬到顶没找到才回退全树遍历
+    if node is not None:
+        cur = node
+        for _ in range(30):
+            try:
+                cur = cur.GetParentControl()
+            except Exception:
+                break
+            if cur is None:
+                break
+            try:
+                if cur.ControlTypeName == "DataGridControl":
+                    scroll = cur.GetPattern(_uia.PatternId.ScrollPattern)
+                    if scroll is not None and scroll.HorizontallyScrollable:
+                        return scroll
+            except Exception:
+                continue
+    win = _main_window()
+    if win is None:
+        return None
+    for grid in _walk(win, want_type="DataGridControl", max_depth=30):
+        try:
+            if _is_offscreen(grid):
+                continue  #陈旧页签里的网格，滚它没用
+            scroll = grid.GetPattern(_uia.PatternId.ScrollPattern)
+            if scroll is not None and scroll.HorizontallyScrollable:
+                return scroll
+        except Exception:
+            continue
+    return None
+
+
+def _grid_hscroll_to_cell(field, tag, row, start_node=None):
+    #把目标格子滚进视口，返回 (格子元素, 新鲜矩形)；弄不进来返回 (None, None)。
+    #
+    #为什么必须滚：明细列多，用户改过列宽/列顺序、窗口非最大化、或分辨率变小时，
+    #仓位列会整列滚在窗口右缘之外（实测 rect x 到 2200 而窗右缘只有 1288）。
+    #这时格子在树里"存在且 offscreen=False"，屏幕上却点不到 ——
+    #拿它的坐标去点等于点到别的列上（改错数据），比失败更危险，所以弄不进来就直接失败。
+    #
+    #为什么滚动后要重读矩形：WPF 虚拟化在中间滚动位置会给过期的布局坐标，
+    #只有滚动事件之后的读取才和屏幕渲染一致（实测踩过：拿旧 rect 点 → 18 个候选位全空）。
+    #列滚进视口时旧格子元素会被回收，对它读矩形返回 None → 那时才全树重找一次。
+    #
+    #策略（2026-11-19 重写；旧版"归零+24步盲滚、每步两次全树遍历"实测烧 2~4 分钟/列，
+    #GUI 表现就是"卡了好久没日志"，用户手动拖横滚条才解卡）：
+    #  ①优先复用调用方已经找到的格子（start_node），省一次遍历
+    #  ②已可见 → 微滚 +2% 强制重排 + 重找一次拿新鲜矩形
+    #  ③不可见 → 滚 8% 校准"每 1% 多少像素"（实测线性）→ 一步跳到目标位 →
+    #    最多 3 次微调 → 交付前保证点击坐标来自滚动后的新鲜元素
+    #  ④滚不动/滚到底仍看不见 → 立刻失败并说清"窗口太窄，最大化后重跑"
+    #⚠️SetScrollPercent 的第二个参数必须直接写 -1.0：这个版本的 uiautomation
+    #  没有 BasePattern.NoScroll 常量，用它会抛 AttributeError（实测踩过）
+    def _visible(rect):
+        if rect is None:
+            return False
+        win = _main_window()
+        wr = _header_rect(win) if win is not None else None
+        if not wr:
+            return False
+        margin = 40  #右缘留白：放大镜在格子内部右侧，贴边点击容易飘到相邻列
+        return wr[0] < rect[0] and rect[2] < wr[2] - margin
+
+    def _refind():
+        #一次全树遍历（实测 15~25s，本函数唯一的贵操作）：只在廉价重读失败时才用
+        fresh, _aid = _cell_node(field, tag, row, want_lookup=None)
+        if fresh is None:
+            return None, None
+        return fresh, _header_rect(fresh)
+
+    def _cheap_rect():
+        #廉价重读：滚动事件已经强制 WPF 重新布局，同一个节点再读一次矩形就是新鲜值，
+        #一次 COM 调用（对比 _refind 的几千次）。只有节点被虚拟化回收（读不到矩形）
+        #才值得付一次全树遍历的代价
+        nonlocal node
+        try:
+            r = _header_rect(node)
+        except Exception:
+            r = None
+        if r is not None:
+            return node, r
+        node, r = _refind()
+        return node, r
+
+    node = start_node
+    rect = _header_rect(node) if node is not None else None
+    if node is None or rect is None:
+        node, rect = _refind()
+    if node is None or rect is None:
+        return None, None
+
+    scroll = _grid_scroll_pattern(tag, node)  #从格子往上爬，别再全树遍历
+    if scroll is None:
+        print(f"[{tag}] {field} 找不到可横向滚动的明细网格（rect={rect}）："
+              f"当前界面不是单据编辑页？")
+        return None, None
+
+    def _percent():
+        try:
+            p = scroll.HorizontalScrollPercent
+            return p if p is not None and p >= 0 else 0.0
+        except Exception:
+            return 0.0
+
+    if _visible(rect):
+        #微滚 +2% 强制重排；再全树重找一次 —— 点击坐标必须来自滚动后的新鲜元素
+        try:
+            scroll.SetScrollPercent(min(100.0, _percent() + 2.0), -1.0)
+            time.sleep(0.5)
+        except Exception:
+            pass
+        node, r2 = _cheap_rect()
+        if r2 is not None and _visible(r2):
+            return node, r2
+        return node, rect  #重读失败：退回原矩形，调用方按现值处理
+
+    #校准：滚 8% 量出线性比例（列左缘 x 随百分比线性左移，实测 ≈25px/1%）
+    p0 = _percent()
+    x0 = rect[0]
+    try:
+        scroll.SetScrollPercent(min(100.0, p0 + 8.0), -1.0)
+    except Exception:
+        return None, None
+    time.sleep(0.6)
+    node, r1 = _cheap_rect()
+    if node is None or r1 is None:
+        return None, None
+    moved = x0 - r1[0]
+    rect = r1
+    if moved <= 10:
+        node, r2 = _cheap_rect()
+        if r2 is not None and _visible(r2):
+            return node, r2
+        win = _main_window()
+        wr = _header_rect(win) if win is not None else None
+        print(f"[{tag}] {field} 第 {row} 行滚不动（rect={rect} 窗右缘="
+              f"{wr[2] if wr else '?'}）：窗口太窄装不下这列，"
+              f"请把金蝶最大化/提高分辨率后重跑")
+        return None, None
+    px_per_pct = moved / 8.0
+
+    win = _main_window()
+    wr = _header_rect(win)
+    cell_w = rect[2] - rect[0]
+    x_target = max(wr[0] + 80, wr[2] - 40 - cell_w)  #目标：整列进视口且右缘留白
+
+    for _ in range(3):
+        gap = rect[0] - x_target
+        if _visible(rect) and gap <= 0:
+            return node, rect
+        pct = _percent() + max(2.0, gap / px_per_pct)
+        try:
+            scroll.SetScrollPercent(min(100.0, pct), -1.0)
+        except Exception:
+            break
+        time.sleep(0.6)
+        node, r2 = _cheap_rect()
+        if node is None or r2 is None:
+            return None, None
+        rect = r2
+
+    if _visible(rect):
+        node, r2 = _cheap_rect()  #交付前保证：点击坐标来自滚动后的新鲜矩形
+        if r2 is not None and _visible(r2):
+            return node, r2
+        return node, rect
+    win = _main_window()
+    wr = _header_rect(win) if win is not None else None
+    print(f"[{tag}] {field} 第 {row} 行滚到底仍在视口外（rect={rect} 窗右缘="
+          f"{wr[2] if wr else '?'}）：窗口太窄装不下这列，请把金蝶最大化后重跑")
+    return None, None
+
+@AgentServer.custom_action("UiaPickFlex")  #弹性域字段：驱动金蝶「维度数据录入」弹窗选值
+class UiaPickFlex(CustomAction):
+
+    @_uia_inited  #本线程要自己初始化 COM，否则整棵 UIA 树枚举不了
+    def run(
+            self,
+            context: Context,
+            argv: CustomAction.RunArg,
+    ) -> bool:
+
+        if not _require_uia("UiaPickFlex"):
+            return False
+        _reset_cache()  #每个动作重新认窗口，不跨动作复用旧句柄
+        param = _params(argv)  #拉取参数
+        if param is None:
+            return False
+        field = param.get("field", "")
+        if field not in _LOOKUP_FIELDS:
+            print(f"[UiaPickFlex] {field!r} 不在当前单据的查找类字段里"
+                  f"（可选: {sorted(_LOOKUP_FIELDS)}）。是不是没先调 UiaSetForm？")
+            return False
+        row = _as_index(param.get("row", 0))
+        _t0 = time.time()  #从取参数就计时：旧写法在滚动之后才起表，"全程17.2s"漏掉了前面 2 分钟的滚动
+
+        keyword = param.get("keyword") or param.get("value")
+        keyword = str(keyword).strip() if keyword is not None else ""
+        if not keyword:
+            getter = _COLUMN_ATTR_BY_FIELD.get(field)
+            keyword = ""
+            if getter is not None:
+                try:
+                    import transfer_actions
+                    order = transfer_actions._current_order()
+                    if order is not None and row < len(order.items):
+                        keyword = str(getter(order.items[row]) or "").strip()
+                except Exception as exc:
+                    print(f"[UiaPickFlex] 从队列取 {field} 异常: {exc!r}")
+        if not keyword:
+            print(f"[UiaPickFlex] {field} 第 {row} 行没有值（Excel 空），按无需填写处理")
+            return True  #空值=这行本来就不填仓位，和 UiaSetCell 空值语义一致
+
+        expect = str(param.get("expect", "") or "")
+
+        #── 前置：同行的仓库列必须已填 ──
+        #仓库空 → 仓位格是禁用态（没有编辑控件），点它不会有任何反应。
+        #这条必须**先报清楚**，否则现象是"弹窗开不出来"，下一个人会去查弹窗，其实卡在这
+        prereq = _FLEX_PREREQ_WAREHOUSE.get(field)
+        if prereq:
+            wh_node, _wh_aid = _cell_node(prereq, "UiaPickFlex", row, want_lookup=None)
+            wh_value = _read_cell_text(wh_node) if wh_node is not None else ""
+            if not wh_value:
+                print(f"[UiaPickFlex] {field} 的前置没满足：同行 {prereq} 是空的。"
+                      f"仓库为空时仓位格处于禁用态（金蝶不给它编辑控件），弹窗开不出来 —— "
+                      f"请先用 UiaSetCell 填仓库（编码形态），再填仓位")
+                return False
+
+        node, aid = _cell_node(field, "UiaPickFlex", row, want_lookup=None)
+        if node is None:
+            return False
+        current = _read_cell_text(node)
+        if current and keyword in current:
+            print(f"[UiaPickFlex] {field} 第 {row} 行已经是 {current!r}，跳过填写")
+            return True  #重试幂等：上一轮其实填成功了，别重复开弹窗再选一遍
+
+        hwnd = _main_hwnd()
+        if not hwnd:
+            print(f"[UiaPickFlex] 拿不到金蝶主窗口句柄")
+            return False
+        #⚠️抢前台必须在滚动之前：滚动要十几秒，抢不到前台的话那十几秒全是白等
+        #（实测出现过"抢不到前台"却已经烧掉 189s 的日志，就是顺序反了）
+        if not _hold_foreground(hwnd, "UiaPickFlex", "开始定位仓位列"):
+            return False
+        #start_node=node：把前面 _cell_node 已经找到的格子传进去，滚动函数不再重复全树遍历
+        node, rect = _grid_hscroll_to_cell(field, "UiaPickFlex", row, start_node=node)
+        if node is None or rect is None:
+            return False
+        left, top, right, bottom = rect
+        width = max(1, right - left)
+        height = max(1, bottom - top)
+        print(f"[UiaPickFlex] {field}({aid}) 第 {row} 行 rect={rect} 现值={current!r}"
+              f"（定位+滚动 {time.time() - _t0:.1f}s）")
+
+        #── ①触发录入弹窗：先点格子中心进编辑态，再点放大镜候选位 ──
+        #⚠️中途绝不 _fg_restore：从"抢前台"到"格子填完"整段都要金蝶拿着前台，
+        #  归还统一交给动作结尾装饰器那次兜底。
+        #先清掉上一轮残留的弹窗，再取基线：残留不排掉的话，_wait_flex_dialog 会把它当"本轮新窗"，
+        #对着旧窗里别的维度值提交 = 静默写错仓位（基线判据只有在"旧窗已被关掉"时才成立）
+        _close_flex_windows()
+        baseline = _kingdee_top_handles()
+        center_x = left + width / 2.0
+        if not _hold_foreground(hwnd, "UiaPickFlex", "进编辑态"):
+            return False
+        _post_click(hwnd, center_x, top + height / 2.0)  #进编辑态（放大镜只在编辑态渲染）
+        time.sleep(0.8)
+        dialog = None
+        tried = 0
+        lost_foreground = False
+        for x_frac in _FLEX_MAGNIFIER_X_FRACS:
+            for y_frac in _FLEX_MAGNIFIER_Y_FRACS:
+                px = right - x_frac * width
+                py = top + y_frac * height
+                tried += 1
+                if not _hold_foreground(hwnd, "UiaPickFlex", f"第 {tried} 个候选位"):
+                    lost_foreground = True
+                    break
+                if tried > 1:
+                    #上一轮没弹窗时，金蝶可能已经把格子退出了编辑态（被抢前台、
+                    #焦点被别的控件带走都会），这时重抢前台后直接点放大镜还是打空，
+                    #现象和「坐标不对」一样。所以每轮先重新点一次格子中心进编辑态，再点放大镜。
+                    _post_click(hwnd, left + width / 2.0, top + height / 2.0)
+                    time.sleep(0.8)
+                clicked = _post_click(hwnd, px, py)
+                dialog = _wait_flex_dialog(baseline)
+                if dialog is not None:
+                    print(f"[UiaPickFlex] 弹窗已出现（第 {tried} 个候选位 ({px:.0f},{py:.0f}），"
+                          f"距开始 {time.time() - _t0:.1f}s）")
+                    break
+                if tried <= 2 or not clicked:
+                    #前两轮打明细：这一串环节的失败全靠"坐标对不对 + 屏幕上有没有东西"定位
+                    print(f"[UiaPickFlex]   候选 {tried} ({px:.1f},{py:.1f}) 投递={clicked} "
+                          f"前台={int(ctypes.windll.user32.GetForegroundWindow() or 0)} 目标窗={hwnd}")
+                    _dump_flex_windows("UiaPickFlex")
+                #这里**不**关窗（实测踩过的坑）：等不到经常只是窗还在路上，
+                #关掉它反而制造坏状态；迟到的窗由下一个候选的等待收下来照样能用
+            if dialog is not None or lost_foreground:
+                break  #前台丢了整轮停：再投十几次点击只会在非激活窗口上白打
+        if dialog is None and lost_foreground:
+            return False  #_hold_foreground 已经把原因说清楚了，别再报"坐标不对"误导
+        if dialog is None:
+            print(f"[UiaPickFlex] {field} 试了 {tried} 个放大镜候选位都没弹出录入窗"
+                  f"（全程前台都在金蝶，所以这次可以排除前台因素）。"
+                  f"可能原因：①金蝶这个版本把放大镜画在别处 ②该列不是弹性域 "
+                  f"③格子矩形与实际渲染不符")
+            _dump_flex_windows("UiaPickFlex")
+            _close_flex_windows()  #确认全败之后才清，别在候选之间清
+            return False
+
+        #── ②填维度关键词，开值集列表 ──
+        edit = _flex_edit_of(dialog)
+        if edit is None:
+            print(f"[UiaPickFlex] 录入窗里找不到维度输入框（KDPopupBaseEdit）")
+            _invoke_named(dialog, "取消")
+            return False
+        dim_label = _flex_dimension_label(dialog)
+
+        #── ②支路一：「模糊匹配下拉」（打字触发；实测最快，且不依赖值集列表那条查询）──
+        #2026-11-19 实测：SetValue 不触发下拉，只有逐字 WM_CHAR 触发；双击唯一命中行后
+        #输入框回显编码，直接跳到 ⑤ 点「确定」。旧支路（PART_Item→值集列表）保留为兜底。
+        dropdown_ok = False
+        try:
+            dialog_handle = int(dialog.NativeWindowHandle)
+        except Exception:
+            dialog_handle = 0
+        if dialog_handle:
+            outcome = _flex_dropdown_pick(dialog, dialog_handle, edit, keyword, "UiaPickFlex")
+            if outcome == "abort":
+                return False
+            dropdown_ok = outcome == "ok"
+
+        if not dropdown_ok:
+            try:
+                edit.GetPattern(_uia.PatternId.ValuePattern).SetValue(keyword)
+            except Exception as exc:
+                print(f"[UiaPickFlex] 往维度输入框写 {keyword!r} 失败: {exc!r}")
+                _invoke_named(dialog, "取消")
+                return False
+            time.sleep(1.0)  #给金蝶按关键词预筛列表留时间（0.8s 实测偶发来不及）
+
+            magnifier = _flex_magnifier_of(edit)
+            if magnifier is None:
+                print(f"[UiaPickFlex] 维度输入框里没有 PART_Item 放大镜，开不出值集列表")
+                _invoke_named(dialog, "取消")
+                return False
+            list_baseline = _kingdee_top_handles()
+            try:
+                magnifier.GetPattern(_uia.PatternId.InvokePattern).Invoke()
+            except Exception as exc:
+                print(f"[UiaPickFlex] Invoke 弹窗放大镜失败: {exc!r}")
+                _invoke_named(dialog, "取消")
+                return False
+            popup, rows = _wait_flex_list(list_baseline)
+            print(f"[UiaPickFlex]   列表窗={popup is not None} 数据行={len(rows)} "
+                  f"距开始 {time.time() - _t0:.1f}s")
+            #这里不做"关掉空列表窗再重开"的重试：实测关掉之后同一个放大镜再也开不出列表窗，
+            #重试逻辑自己把现场毁掉，把一次本可以靠 pipeline on_error 救回的偶发失败变成必然失败。
+            #偶发的"窗到了行没到"交给上层重跑整节点（动作开头会彻底清场，重跑是干净的）
+            if popup is None:
+                print(f"[UiaPickFlex] {field} 的值集列表窗根本没出现（维度={dim_label}）")
+                _dump_flex_windows("UiaPickFlex")
+                _invoke_named(dialog, "取消")
+                return False
+            if not rows:
+                print(f"[UiaPickFlex] {field} 的值集列表窗出现了但没有一行数据（维度={dim_label}）"
+                      f"—— 两种可能：①该账套在这个维度下确实没有可选值 ②金蝶这次查询没返回（偶发）。"
+                      f"分不清就先让 pipeline 重试本节点；仍失败就把 Excel 该列留空（仓位非必填）")
+                _dump_flex_windows("UiaPickFlex")
+                _invoke_named(dialog, "取消")
+                return False
+            #这里不归还前台：下一步要往列表窗口 PostMessage Enter，同样吃"激活态"这道门槛
+
+            #── ③在列表里找唯一命中行（含翻页）──
+            hit = None
+            hit_texts = []
+            page = 0
+            while page < _FLEX_MAX_PAGES:
+                candidates = []
+                for row_node in rows:
+                    texts = _row_texts(row_node)
+                    if any(keyword in t for t in texts):
+                        candidates.append((row_node, texts))
+                if len(candidates) == 1:
+                    hit, hit_texts = candidates[0]
+                    break
+                if len(candidates) > 1:
+                    #多行都含关键词 = 有歧义，宁可不填也不能猜。
+                    #（"仓位A" 和 "仓位A临时" 同时存在时，选错就是发错货）
+                    print(f"[UiaPickFlex] {field} 列表第 {page + 1} 页有 {len(candidates)} 行都含 {keyword!r}，"
+                          f"歧义不选。各行文本={[t[:2] for t, _ in candidates]}")
+                    _close_flex_windows()
+                    _invoke_named(dialog, "取消")
+                    return False
+                if not _flex_page_next(popup):
+                    break  #没有下一页按钮，或已经翻到最后一页
+                page += 1
+                time.sleep(0.6)
+                rows = [c for c in _walk(popup, want_type="DataItemControl") if _safe_name(c)]
+            if hit is None:
+                print(f"[UiaPickFlex] {field} 值集列表翻了 {page + 1} 页都没有含 {keyword!r} 的行"
+                      f"（维度={dim_label}）。Excel 该列改成列表里真实存在的名称，或留空（仓位非必填）")
+                _close_flex_windows()
+                _invoke_named(dialog, "取消")
+                return False
+
+            #── ④选中并提交 ──
+            #必须用 SelectionItemPattern.Select() 真改选中项，不能用 SetFocus 顶替（焦点≠选中）
+            try:
+                selection = hit.GetPattern(_uia.PatternId.SelectionItemPattern)
+                if selection is None or not selection.Select():
+                    raise RuntimeError("该行没有 SelectionItemPattern 或 Select 返回失败")
+            except Exception as exc:
+                print(f"[UiaPickFlex] {field} 选中目标行失败: {exc!r}")
+                _close_flex_windows()
+                _invoke_named(dialog, "取消")
+                return False
+            time.sleep(0.5)
+
+            list_handle = None
+            try:
+                list_handle = popup.NativeWindowHandle
+            except Exception:
+                pass
+            committed = _flex_confirm_selection(list_handle, popup, edit)
+            if not committed:
+                print(f"[UiaPickFlex] {field} 选完行没能提交（列表关不掉/输入框没回显编码）")
+                _close_flex_windows()
+                _invoke_named(dialog, "取消")
+                return False
+
+        #── ⑤点录入窗「确定」，回读格子 ──
+        #「确定」点不到不立刻判死：实测（2026-11-19 p171/p172）模糊下拉双击后弹窗可能
+        #自行提交并关闭 —— 最终成败以格子回读为准，回读非空就是成功
+        if not _invoke_named(dialog, "确定"):
+            print(f"[UiaPickFlex] 录入窗里没有可见的「确定」（可能已随下拉选中自行提交），"
+                  f"改用格子回读判定")
+        time.sleep(2.0)
+        _fg_restore()
+
+        again, _again_aid = _cell_node(field, "UiaPickFlex", row, want_lookup=None)
+        actual = _read_cell_text(again) if again is not None else ""
+        print(f"[UiaPickFlex] {field} 第 {row} 行 {current!r} → 选 {keyword!r}，回读={actual!r}"
+              f"（全程 {time.time() - _t0:.1f}s）")
+        if not actual:
+            print(f"[UiaPickFlex] {field} 回读是空：金蝶没接住这次选择（弹窗流程中途被别的窗吃掉了？）")
+            return False
+        if expect and expect not in actual:
+            print(f"[UiaPickFlex] 回读校验不通过：期望含 {expect!r}，实际 {actual!r}")
+            return False
+        return True  #格子回读到值 = 弹性域已绑定，保存时不会再被"必录"拦下
+
+
+def _flex_dimension_label(dialog):
+    #读录入窗左侧的维度名（值集里那个维度的显示文本），只为日志好看，读不到就返回空。
+    #判据必须是"在输入框左边"——录入窗里同时有「确定」「取消」等文本，
+    #不加这条会把按钮名当维度名打出来
+    edit = _flex_edit_of(dialog)
+    try:
+        rect = _header_rect(edit) if edit is not None else None
+    except Exception:
+        rect = None
+    if not rect:
+        return ""
+    best = ""
+    best_x = rect[0]
+    for node in _walk(dialog, want_type="TextControl", max_depth=16):
+        try:
+            name = _safe_name(node)
+            if not name or len(name) > 12 or _is_offscreen(node):
+                continue
+            own = _header_rect(node)
+            if not own or own[0] >= rect[0]:
+                continue
+            if own[1] < rect[1] - 40 or own[1] > rect[3] + 40:  #不在输入框那一行附近
+                continue
+            if own[0] < best_x:
+                best_x, best = own[0], name
+        except Exception:
+            continue
+    return best
+
+
+def _flex_echo_code(edit):
+    #读维度输入框当前回显的值。选中一行后金蝶把它换成**编码**（不是名称），
+    #这个回显是"列表选择真的生效了"的判据 —— 光看列表窗口关了没并不可靠
+    try:
+        return str(edit.GetPattern(_uia.PatternId.ValuePattern).Value or "").strip()
+    except Exception:
+        return ""
+
+
+def _flex_confirm_selection(list_handle, popup, edit):
+    #把"已选中的列表行"提交回录入窗。两条路按优先级试，判据都是输入框回显变成编码：
+    #  ①PostMessage Enter 到列表窗口（实测最干净，全程零鼠标）
+    #  ②PostMessage 双击目标行（有些金蝶版本列表只认双击）
+    #⚠️绝不用 keybd_event/SendInput —— 那是全局注入，前台是用户程序时等于往用户窗口里敲键
+    before = _flex_echo_code(edit)
+    if list_handle:
+        #⚠️Enter 投的是列表窗，所以确认的前台目标也是列表窗自己，不是主窗
+        if not _hold_foreground(list_handle, "UiaPickFlex", "往列表窗投 Enter"):
+            return False
+        _post_key(list_handle, 0x0D)  # VK_RETURN
+        time.sleep(2.0)
+        if _flex_list_closed(popup) and _flex_echo_code(edit) != before:
+            return True
+        if _flex_echo_code(edit) not in ("", before):
+            return True
+    #兜底：双击列表里那一行
+    try:
+        rows = [c for c in _walk(popup, want_type="DataItemControl") if _safe_name(c)]
+    except Exception:
+        rows = []
+    for row_node in rows:
+        rect = _header_rect(row_node)
+        if not rect:
+            continue
+        if list_handle:
+            if not _hold_foreground(list_handle, "UiaPickFlex", "往列表窗投双击"):
+                return False
+            _post_click(list_handle, (rect[0] + rect[2]) / 2.0, (rect[1] + rect[3]) / 2.0, double=True)
+            time.sleep(2.0)
+            if _flex_echo_code(edit) not in ("", before):
+                return True
+    return False
+
+
+def _flex_list_closed(popup):
+    #列表窗口是否已经关掉（句柄失效或不再可见）
+    try:
+        handle = popup.NativeWindowHandle
+    except Exception:
+        return True
+    if not handle:
+        return True
+    try:
+        user32 = ctypes.windll.user32
+        return not (bool(user32.IsWindow(handle)) and bool(user32.IsWindowVisible(handle)))
+    except Exception:
+        return True
+
+
+def _invoke_close_button(win):
+    #点窗口自己的 closeButton（标题栏那个 X）。
+    #⚠️只在调用方已经确认"这不是主窗"之后用 —— _kingdee_top_controls 已按句柄排除主窗，
+    #两层保护都别拆：主窗的 closeButton 会把整个客户端关掉
+    for button in _walk(win, want_type="ButtonControl", max_depth=14):
+        try:
+            if "close" not in (getattr(button, "AutomationId", "") or "").lower():
+                continue
+            invoke = button.GetPattern(_uia.PatternId.InvokePattern)
+            if invoke is not None:
+                invoke.Invoke()
+                time.sleep(0.8)
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _close_flex_windows():
+    #关掉金蝶在场的「维度数据录入」窗和它的值集列表，只点「取消」。
+    #
+    #为什么 _close_stale_popups 不够用：它的形状判据 _looks_like_selector 要求"有 DataItem 行
+    #+ 成对确定/取消"，而录入窗是 KDPopupBaseEdit + 确定/取消、**没有 DataItem 行** → 认不出来。
+    #后果是灾难级的：录入窗是模态的，它挂在那里，主窗口收不到任何点击，
+    #于是本动作后面每个候选位都白试（实测一轮烧掉 68s 全失败），
+    #而且每次重试都还是被同一个旧窗挡着 —— 跨重试永久死锁。
+    #
+    #为什么只点「取消」不点「确定」：残留窗属于上一轮，窗里那个维度值不是这一轮的答案，
+    #点确定等于把上一轮的仓位静默写进这一张单
+    closed = 0
+    for _handle, win in _kingdee_top_controls():
+        title = ""
+        try:
+            title = win.Name or ""
+        except Exception:
+            pass
+        if _flex_dialog_shape(win) or _FLEX_DIALOG_TITLE in title:
+            #录入窗：只点「取消」，点「确定」会把窗里上一轮的旧维度值提交进单据
+            if _invoke_named(win, "取消"):
+                closed += 1
+        elif _FLEX_LIST_TITLE in title or _looks_like_selector(win):
+            #列表窗没有「取消」，走它自己的「退出」；再兜底标题栏 closeButton
+            #（能走到这里说明 _kingdee_top_controls 已经排除了主窗，点不到用户的单据页）
+            if _invoke_named(win, "退出") or _invoke_close_button(win):
+                closed += 1
+    if closed:
+        print(f"[_close_flex_windows] 关掉了 {closed} 个残留的维度录入窗/值集列表")
+    return closed
+

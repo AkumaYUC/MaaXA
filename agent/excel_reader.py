@@ -49,6 +49,7 @@ TEMPLATES = {
         _c("调入仓位", "target_location", "调入仓位"),
         _c("申请组织", "apply_org", "申请组织", order=True, required=True),
         _c("调拨类型", "transfer_type", "调拨类型", order=True, required=True),
+        _c("调拨申请类型", "apply_type", "调拨申请类型", order=True),  #组合框下拉，每个账套选项不同；留空=保留金蝶默认
         _c("申请人", "applicant", "申请人", order=True, required=True),
         _c("联系电话", "phone", "联系电话", order=True),
         _c("通讯地址", "address", "通讯地址", order=True),
@@ -73,6 +74,7 @@ class OrderItem:
     remark: str = ""  #备注（直接调拨单专用，默认*）
     apply_org: str = ""  #申请组织（申请单专用）
     transfer_type: str = ""  #调拨类型（申请单读Excel原文，直接调拨单由组织推导）
+    apply_type: str = ""  #调拨申请类型（申请单专用，组合框；留空=保留金蝶默认）
     applicant: str = ""  #申请人（申请单专用）
     phone: str = ""  #联系电话（申请单专用）
     address: str = ""  #通讯地址（申请单专用）
@@ -92,6 +94,7 @@ class TransferOrder:
     remark: str = ""  #单据备注，直接调拨单用，默认为*
     apply_org: str = ""  #申请组织
     transfer_type: str = ""  #调拨类型
+    apply_type: str = ""  #调拨申请类型（申请单专用，组合框）
     applicant: str = ""  #申请人
     phone: str = ""  #联系电话
     address: str = ""  #通讯地址
