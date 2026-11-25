@@ -2,3 +2,4 @@ maafw==5.12.3
 openpyxl==3.1.5
 pyperclip==1.11.0
 uiautomation==2.0.29  #UIA 后台填写（agent/uia_actions.py）；缺失时所有 Uia* 动作会打「缺少 uiautomation 依赖」并返回 False
+websocket-client==1.9.2  #网页端后台填写（agent/web_actions.py）的 CDP 通道；缺失时所有 Web* 动作打提示并返回 False，不影响其它模块

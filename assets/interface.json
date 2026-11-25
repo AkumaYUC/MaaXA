@@ -25,6 +25,21 @@
 
     "controller": [
         {
+            // 网页端占位连接：Web* 动作全部经 CDP(9333) 直驱页面，不用这里的截图/键鼠；
+            // MAA 框架要求任务必须有已连接控制器，这里给一个永不误伤前台的配置（绝不 Seize）。
+            // class_regex 用 Chrome_WidgetWin_1 精确命中 Edge/Chrome 窗口，与金蝶客户端 HwndWrapper[...] 天然区分
+            // ⚠️排第一：MFAAvalonia 启动时不恢复上次选择，控制器下拉默认取数组首项（2026-11-24 实测）
+            "name": "网页端",
+            "type": "Win32",
+            "win32": {
+                "class_regex": "Chrome_WidgetWin_1",
+                "window_regex": "金蝶云星空|K3Cloud",
+                "screencap": "FramePool",
+                "mouse": "PostMessage",
+                "keyboard": "PostMessage"
+            }
+        },
+        {
             "name": "桌面端",
             "type": "Win32",
             "win32": {
@@ -40,6 +55,12 @@
     ],
     "resource": [
         {
+            "name": "网页",
+            "path": [
+                "./resource"
+            ]
+        },
+        {
             "name": "程序页",
             "path": [
                 "./resource"
@@ -47,15 +68,22 @@
         }
     ],
 
-    // Windows-only：在 Maa Controller 创建前确保金蝶云已启动。
-    // 脚本会复用已有的金蝶窗口或进程，不会重复启动；不要同时启用 Avalonia 的“启动游戏”。
-    // 金蝶安装路径由脚本自动探测（遍历各盘 Program Files），无需在这里配置。
+    // 2026-11-24 用户口径：不自动拉起【金蝶桌面客户端】（原 start_kingdee.ps1 pretask 已删，
+    // 要自启请在 GUI 设置→启动设置→应用路径 自行配置）。
+    // 下面这条只拉起【专用调试 Edge】（独立 profile + CDP 端口，网页端自动化的命脉；
+    // 用户手开的普通 Edge 没有调试端口，CDP 连不上）。脚本幂等：端口已活秒退，不重复开窗。
+    // controller 过滤 = 仅选中「网页端」控制器时执行（PI v2.8.1）；单对象写法（2.14 数组会被静默跳过）
+    // ⚠️MFAAvalonia 的 pretask 实际 CWD 不是 interface.json 所在目录（11-25 实测：写
+    //   agent/start_web.ps1 报 exited with code -196608=文件找不到；桌面端 ../../agent/ 一直是通的）
+    //   → 改用 -Command 在三个候选相对位置里探测脚本，与启动目录无关。
+    // 「连接」按钮和「启动任务」都会跑 pretask（11-23 日志 src=UI op=RefreshDevices 实证）
+    //   → 误关 Edge 后点一下「连接」就自动重开，这就是用户要的"打开 web 端"入口（11-25 拍板）。
     "pretask": {
-        "name": "启动金蝶云",
-        "label": "启动金蝶云",
-        "description": "已有金蝶云窗口或进程时跳过启动；没有时自动启动并等待窗口就绪。",
+        "name": "启动网页Edge",
+        "label": "启动网页Edge",
+        "description": "拉起带 CDP 调试端口的专用 Edge（独立 profile，登录态持久化）；端口已活则跳过，K3Cloud 页签被关会自动补开。",
         "controller": [
-            "桌面端"
+            "网页端"
         ],
         "exec": "C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
         "args": [
@@ -63,12 +91,8 @@
             "-NonInteractive",
             "-ExecutionPolicy",
             "Bypass",
-            "-File",
-            "../../agent/start_kingdee.ps1",
-            "-WindowRegex",
-            "金蝶|云星空|Kingdee.BOS.XPF",
-            "-WaitSeconds",
-            "60"
+            "-Command",
+            "$p = 'agent/start_web.ps1','../../agent/start_web.ps1','../../../agent/start_web.ps1' | Where-Object { Test-Path $_ } | Select-Object -First 1; if ($p) { & $p -Port 9333 -WaitSeconds 40; exit $LASTEXITCODE } else { Write-Error ('start_web.ps1 not found from CWD ' + (Get-Location)); exit 4 }"
         ]
     },
 
@@ -82,8 +106,21 @@
     },
     "task": [
         {
+            "name": "调拨申请单(网页端)",
+            "entry": "TransferRequisitionFormEntryWeb",
+            "resource": [
+                "网页"
+            ],
+            "option": [
+                "调拨申请单文件(网页)"
+            ]
+        },
+        {
             "name": "直接调拨单",
             "entry": "直接调拨单任务入口",
+            "resource": [
+                "程序页"
+            ],
             "option": [
                 "单据文件"
             ]
@@ -91,20 +128,26 @@
         {
             "name": "调拨申请单",
             "entry": "TransferRequisitionFormEntry",
+            "resource": [
+                "程序页"
+            ],
             "option": [
                 "调拨申请单文件"
             ]
         },
         {
             "name":"即时库存导出",
-            "entry":"ExportInventoryDataEntry"
+            "entry":"ExportInventoryDataEntry",
+            "resource": [
+                "程序页"
+            ]
         }
     ],
     "option": {
         "单据文件": {
             "type": "file",
             "label": "单据文件",
-            "description": "拖入 Excel 调拨单，任务全部成功后自动归档副本。表格格式：物料编码、数量、调出仓库、调出仓位、调入仓库、调入仓位、调出库存组织、调入库存组织、备注。两个组织填在整单第一行即可；同一张单里填代码还是填名称请统一。",
+            "description": "Excel 列：物料编码、数量、调出仓库、调出仓位、调入仓库、调入仓位、调出库存组织、调入库存组织、备注。两个组织与备注填首行即可，仓库列必填；组织填代码或名称，同一张单统一写法。",
             "template":"template/直接调拨单模版.xlsx",
             "inputs": [
                 {
@@ -123,7 +166,8 @@
         "调拨申请单文件": {
             "type": "file",
             "label": "调拨申请单文件",
-            "description": "拖入 Excel 调拨申请单，任务全部成功后自动归档副本。表格格式：物料编码、调出组织、调出仓库、调出仓位、调入组织、调入仓库、调入仓位、数量、申请组织、调拨类型、申请人、联系电话、通讯地址、联系人、需求日期（当天）。调出组织、调入组织、申请组织、调拨类型、申请人填在整单第一行；调拨类型只能填「组织内调拨」或「跨组织调拨」；需求日期留空按当天填。",
+            "description": "Excel 列：物料编码、数量、调出组织、调出仓库、调出仓位、调入组织、调入仓库、调入仓位、申请组织、调拨类型、调拨申请类型、申请人、联系电话、通讯地址、联系人、需求日期（当天）。调拨类型只能填「组织内调拨」或「跨组织调拨」；申请组织/调拨类型/申请人等整单字段填首行即可；需求日期留空按当天。",
+            "template":"template/调拨申请单模版.xlsx",
             "inputs": [
                 {
                     "name": "调拨申请单文件",
@@ -135,6 +179,25 @@
             "pipeline_override": {
                 "TransferRequisitionFormReadExcel": {
                     "custom_action_param": { "path": "{调拨申请单文件}", "template": "requisition" }
+                }
+            }
+        },
+        "调拨申请单文件(网页)": {
+            "type": "file",
+            "label": "调拨申请单文件(网页)",
+            "description": "Excel 列与「调拨申请单文件」完全一致（同一张模板可直接用）。区别只在执行方式：经 Edge 调试端口驱动金蝶云网页端，不抢前台、不动鼠标键盘。",
+            "template":"template/调拨申请单模版.xlsx",
+            "inputs": [
+                {
+                    "name": "调拨申请单文件(网页)",
+                    "label": "拖拽 Excel 文件到此，或点击浏览选择文件",
+                    "description": "浏览",
+                    "pipeline_type": "string"
+                }
+            ],
+            "pipeline_override": {
+                "TransferRequisitionFormReadExcelWeb": {
+                    "custom_action_param": { "path": "{调拨申请单文件(网页)}", "template": "requisition" }
                 }
             }
         }

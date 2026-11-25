@@ -1,0 +1,398 @@
+{
+    "TransferRequisitionFormEntryWeb": {
+        "desc": "调拨申请单任务入口",
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "TransferRequisitionFormSetFormWeb"
+        ]
+    },
+    "TransferRequisitionFormSetFormWeb": {
+        "desc": "切换明细字段为动作白名单",
+        "action": "Custom",
+        "custom_action": "WebSetForm",
+        "custom_action_param": {
+            "form": "requisition"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "TransferRequisitionFormReadExcelWeb"
+        ]
+    },
+    "TransferRequisitionFormReadExcelWeb": {
+        "desc": "读取调拨申请单Excel文件字段数据",
+        "action": "Custom",
+        "custom_action": "ReadTransferExcel",
+        "custom_action_param": {
+            "path": "",
+            "template": "requisition"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "TransferRequisitionFormNavigateWeb"
+        ]
+    },
+    "TransferRequisitionFormNavigateWeb": {
+        "desc": "后台导航直达调拨申请单新增页签",
+        "action": "Custom",
+        "custom_action": "WebNavigate",
+        "custom_action_param": {
+            "text": "调拨申请单列表",
+            "wait_label": "申请组织",
+            "timeout_ms": 60000
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "TransferRequisitionFormNextOrderWeb"
+        ],
+        "on_error": [
+            "TransferRequisitionFormNavigateWeb"
+        ]
+    },
+    "TransferRequisitionFormNextOrderWeb": {
+        "desc": "调拨申请单下一张单的数据录入节点",
+        "action": "Custom",
+        "custom_action": "NextOrder",
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "TransferRequisitionFormApplyOrgWeb"
+        ],
+        "on_error": [
+            "TransferRequisitionFormDoneWeb"
+        ]
+    },
+    "TransferRequisitionFormOrgsWeb": {
+        "desc": "调出组织整列铺开（源格填值→单击选中→批量填充按钮，一次铺满整列）",
+        "action": "Custom",
+        "custom_action": "WebPatchFill",
+        "custom_action_param": {
+            "field": "source_org"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "TransferRequisitionFormOrgsInWeb"
+        ],
+        "on_error": [
+            "TransferRequisitionFormStopWeb"
+        ]
+    },
+    "TransferRequisitionFormOrgsInWeb": {
+        "desc": "调入组织整列铺开（源格填值→单击选中→批量填充按钮，一次铺满整列）",
+        "action": "Custom",
+        "custom_action": "WebPatchFill",
+        "custom_action_param": {
+            "field": "target_org"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "TransferRequisitionFormFillWhOutWeb"
+        ],
+        "on_error": [
+            "TransferRequisitionFormStopWeb"
+        ]
+    },
+    "TransferRequisitionFillMaterialWeb": {
+        "desc": "调拨申请单物料编码整列块粘贴（右键块粘贴→灌整列→确定）",
+        "action": "Custom",
+        "custom_action": "WebBlockPaste",
+        "custom_action_param": {
+            "field": "material_code"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "TransferRequisitionFormFillQtyWeb"
+        ]
+    },
+    "TransferRequisitionFormFillQtyWeb": {
+        "desc": "调拨申请单数量整列块粘贴",
+        "action": "Custom",
+        "custom_action": "WebBlockPaste",
+        "custom_action_param": {
+            "field": "quantity"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "TransferRequisitionFormCheckRowsWeb"
+        ]
+    },
+    "TransferRequisitionFormCheckRowsWeb": {
+        "desc": "ERP界面行数与Excel行数对账",
+        "recognition": "Custom",
+        "custom_recognition": "WebRowCount",
+        "custom_recognition_param": {
+            "field": "material_code"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "TransferRequisitionFormOrgsWeb"
+        ],
+        "on_error": [
+            "TransferRequisitionFormStopWeb"
+        ]
+    },
+    "TransferRequisitionFormFillWhOutWeb": {
+        "desc": "调出仓库整列铺开（源格填值→单击选中→批量填充按钮，一次铺满整列）",
+        "action": "Custom",
+        "custom_action": "WebPatchFill",
+        "custom_action_param": {
+            "field": "source_warehouse"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "TransferRequisitionFormFillWhInWeb"
+        ],
+        "on_error": [
+            "TransferRequisitionFormStopWeb"
+        ]
+    },
+    "TransferRequisitionFormFillWhInWeb": {
+        "desc": "调入仓库整列铺开（源格填值→单击选中→批量填充按钮，一次铺满整列）",
+        "action": "Custom",
+        "custom_action": "WebPatchFill",
+        "custom_action_param": {
+            "field": "target_warehouse"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "TransferRequisitionFormFillLocOutWeb"
+        ],
+        "on_error": [
+            "TransferRequisitionFormStopWeb"
+        ]
+    },
+    "TransferRequisitionFormFillLocOutWeb": {
+        "desc": "调出仓位整列铺开（源格填值→单击选中→批量填充按钮，一次铺满整列）",
+        "action": "Custom",
+        "custom_action": "WebPatchFill",
+        "custom_action_param": {
+            "field": "source_location"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "TransferRequisitionFormFillLocInWeb"
+        ],
+        "on_error": [
+            "TransferRequisitionFormStopWeb"
+        ]
+    },
+    "TransferRequisitionFormFillLocInWeb": {
+        "desc": "调入仓位整列铺开（源格填值→单击选中→批量填充按钮，一次铺满整列）",
+        "action": "Custom",
+        "custom_action": "WebPatchFill",
+        "custom_action_param": {
+            "field": "target_location"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "TransferRequisitionFormNewBillWeb"
+        ],
+        "on_error": [
+            "TransferRequisitionFormStopWeb"
+        ]
+    },
+    "TransferRequisitionFormApplyOrgWeb": {
+        "desc": "申请组织填写",
+        "action": "Custom",
+        "custom_action": "WebSetHeaderField",
+        "custom_action_param": {
+            "field": "apply_org"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "TransferRequisitionFormApplicantWeb"
+        ]
+    },
+    "TransferRequisitionFormApplicantWeb": {
+        "desc": "申请人填写",
+        "action": "Custom",
+        "custom_action": "WebSetHeaderField",
+        "custom_action_param": {
+            "field": "applicant"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "TransferRequisitionFormPhoneWeb"
+        ]
+    },
+    "TransferRequisitionFormPhoneWeb": {
+        "desc": "联系电话填写",
+        "action": "Custom",
+        "custom_action": "WebSetHeaderField",
+        "custom_action_param": {
+            "field": "phone"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "TransferRequisitionFormAddressWeb"
+        ]
+    },
+    "TransferRequisitionFormAddressWeb": {
+        "desc": "通讯地址填写",
+        "action": "Custom",
+        "custom_action": "WebSetHeaderField",
+        "custom_action_param": {
+            "field": "address"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "TransferRequisitionFormContactWeb"
+        ]
+    },
+    "TransferRequisitionFormContactWeb": {
+        "desc": "联系人填写",
+        "action": "Custom",
+        "custom_action": "WebSetHeaderField",
+        "custom_action_param": {
+            "field": "contact"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "TransferRequisitionFormDemandDateWeb"
+        ]
+    },
+    "TransferRequisitionFormDemandDateWeb": {
+        "desc": "需求日期填写",
+        "action": "Custom",
+        "custom_action": "WebSetHeaderField",
+        "custom_action_param": {
+            "field": "demand_date"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "TransferRequisitionFormCheckTransferTypeWeb"
+        ]
+    },
+    "TransferRequisitionFormCheckTransferTypeWeb": {
+        "desc": "调拨类型下拉选择",
+        "action": "Custom",
+        "custom_action": "WebPickCombo",
+        "custom_action_param": {
+            "field": "transfer_type"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "TransferRequisitionFormApplyTypeWeb"
+        ],
+        "on_error": [
+            "TransferRequisitionFormStopWeb"
+        ]
+    },
+    "TransferRequisitionFormApplyTypeWeb": {
+        "desc": "调拨申请类型下拉选择",
+        "action": "Custom",
+        "custom_action": "WebPickCombo",
+        "custom_action_param": {
+            "field": "apply_type"
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "on_error": [
+            "TransferRequisitionFormStopWeb"
+        ],
+        "next": [
+            "TransferRequisitionFillMaterialWeb"
+        ]
+    },
+    "TransferRequisitionFormSubmitWeb": {
+        "desc": "顶栏提交：真提交进ERP工作流，默认无节点引用（真单校准才把 FillLocIn.next 换到这里）",
+        "action": "Custom",
+        "custom_action": "WebSubmit",
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "TransferRequisitionFormAuditWeb"
+        ],
+        "on_error": [
+            "TransferRequisitionFormStopWeb"
+        ]
+    },
+    "TransferRequisitionFormAuditWeb": {
+        "desc": "顶栏审核：前置=已提交；落地判据=下推按钮点亮；第三步下推等本步校准后再挂",
+        "action": "Custom",
+        "custom_action": "WebAudit",
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "TransferRequisitionFormNewBillWeb"
+        ],
+        "on_error": [
+            "TransferRequisitionFormStopWeb"
+        ]
+    },
+    "TransferRequisitionFormStopWeb": {
+        "desc": "异常停止节点：WebStop 返回 False 让任务真失败（DoNothing 会把失败伪装成完成）",
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "action": "Custom",
+        "custom_action": "WebStop"
+    },
+    "TransferRequisitionFormDoneWeb": {
+        "desc": "调拨申请单任务结束节点",
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0
+    },
+    "TransferRequisitionFormNewBillWeb": {
+        "desc": "填完一张后开下一张：点顶栏新增→顶部横幅点否放弃当前未保存单",
+        "action": "Custom",
+        "custom_action": "WebNewBill",
+        "custom_action_param": {
+            "wait_label": "申请组织",
+            "timeout_ms": 60000
+        },
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "TransferRequisitionFormNextOrderWeb"
+        ],
+        "on_error": [
+            "TransferRequisitionFormStopWeb"
+        ]
+    }
+}

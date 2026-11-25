@@ -12,6 +12,7 @@ import my_action
 import common
 import transfer_actions
 import uia_actions
+import web_actions
 
 
 def main():
