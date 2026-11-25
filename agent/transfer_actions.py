@@ -182,6 +182,14 @@ def _current_order():
     return _orders[_current]
 
 
+def is_last_order():
+    #当前是不是队列最后一张（WebNewBill 用它决定要不要开下一张：最后一张不点新增，
+    #留在当前单/直接收尾 —— 2026-11-25 用户口径；单张 Excel 也走这条，跑完不开空白单）
+    if not _orders:
+        return True  #队列都没就绪，保守当作最后一张
+    return _current >= len(_orders) - 1
+
+
 def _column_lines(order, column, first_only=True):
     #取当前单某一列的文本（默认只取首个物料那行），返回 (行文本列表, 字段名)。column拼错返回 (None, None)
     #仓库/仓位这类整单一致的列都由填表人写在第一个物料行上，所以要 first_only；

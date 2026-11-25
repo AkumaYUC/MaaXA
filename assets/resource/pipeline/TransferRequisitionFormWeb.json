@@ -336,7 +336,7 @@
         ]
     },
     "TransferRequisitionFormSubmitWeb": {
-        "desc": "顶栏提交：真提交进ERP工作流，默认无节点引用（真单校准才把 FillLocIn.next 换到这里）",
+        "desc": "顶栏提交：由任务开关「是否提交并下推单据」接入（Yes 时 FillLocIn.next 覆盖到这里）",
         "action": "Custom",
         "custom_action": "WebSubmit",
         "rate_limit": 0,
@@ -350,9 +350,23 @@
         ]
     },
     "TransferRequisitionFormAuditWeb": {
-        "desc": "顶栏审核：前置=已提交；落地判据=下推按钮点亮；第三步下推等本步校准后再挂",
+        "desc": "顶栏审核：前置=已提交；落地判据=下推按钮点亮",
         "action": "Custom",
         "custom_action": "WebAudit",
+        "rate_limit": 0,
+        "pre_delay": 0,
+        "post_delay": 0,
+        "next": [
+            "TransferRequisitionFormPushWeb"
+        ],
+        "on_error": [
+            "TransferRequisitionFormStopWeb"
+        ]
+    },
+    "TransferRequisitionFormPushWeb": {
+        "desc": "顶栏下推：前置=已审核；落地判据=新目标单据页签；完成后切回申请单列表页签（防 NewBill 点到目标单的「新增」开错单据）",
+        "action": "Custom",
+        "custom_action": "WebPushDown",
         "rate_limit": 0,
         "pre_delay": 0,
         "post_delay": 0,

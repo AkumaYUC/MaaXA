@@ -11,6 +11,10 @@
 #                     ⚠️ v1 不关旧草稿：测试期每跑一单留一个未保存页签，跑完手动关（保存链路落地后此条作废）
 #  WebSetCell         param: {"field": "material_code", "row": 0, "value": "05-002-03064"}
 #                     明细格子写值：走【真实输入链】——双击进编辑态→Ctrl+A→Delete→键入→F7列Enter/普通列Tab。
+#                     ⚠️F7 列值含中文（如 电子仓/委外仓）时自动改走【逐字符键入+Enter】：
+#                     insertText 不触发 typeahead（血泪结论#4），逐字符弹模糊下拉、唯一命中 Enter 直接选中
+#                     （2026-11-25 实测通过，用户口径：名称在组织内唯一就不用记编码）。
+#                     多命中时 Enter 行为未校准：金蝶会留空/选错 → 校验不过报错，绝不假成功
 #                     ⚠️2026-11-20 保存实测推翻旧口径：model.set 只改 kendo 显示数据源，不进 billModel，
 #                     保存序列化读的是 billModel，所以 model.set 写的明细保存时全被判空（服务器报必填错）。
 #                     只有真实键入触发的金蝶 UpdateValue 才进模型；F7 列 Enter 后金蝶自己解析编码带出名称。
@@ -56,11 +60,13 @@
 #  WebPing            param: {}  探测 CDP/登录态/当前页形态，排查连接问题用（正常流程不调）
 #  WebSubmit          param: {}  顶栏「提交」真实鼠标点击 + 确认弹窗点确定。落地硬判据=
 #                     「单据编号」由占位「保存时自动生成」变真编号（或页签标题脱离「新增」）。
-#                     ⚠️会真提交单据进 ERP 工作流：默认不接进跑单链路（节点已建但无 next 引用），
-#                     真单校准阶段把 FillLocIn.next 换成本节点才启用（2026-11-25 用户口径）
+#                     ⚠️真单进 ERP 工作流：由任务开关「是否提交并下推单据」接入链路（Yes 才走），
+#                     默认 No=只填不提交（2026-11-25 真实单据校准）
 #  WebAudit           param: {}  顶栏「审核」，同 WebSubmit 机制；前置=已提交（按钮灰则拒点）。
-#                     落地硬判据=「下推」按钮由灰变亮（用户截图实证的唯一免文案赌注信号）。
-#                     同样默认不接链路；第三步「下推」等本步真单校准后再做
+#                     落地硬判据=「下推」按钮由灰变亮（用户截图实证的功能信号，不赌状态文案）
+#  WebPushDown        param: {}  顶栏「下推」；前置=已审核（灰则拒点）。落地判据=弹窗关+新目标单据页签；
+#                     随后自动切到新页签对目标单（如 分步式调出单）点一次「提交」——整单才算完成
+#                     （2026-11-25 活体实测：编号 FBDC223163 出号、页签转「- 修改」）；最后切回来源单页签
 
 import json
 import os
@@ -88,6 +94,7 @@ except Exception:
     _WS_AVAILABLE = False
 
 _CDP_PORT = int(os.environ.get("MAAXA_CDP_PORT", "9333"))  #start_web.ps1 的约定端口，环境变量可覆盖
+_CJK_RE = re.compile(r"[\u4e00-\u9fff]")  #含中文 = 走名称模糊匹配（typeahead 只认逐字符键入）
 _WEB_URL = "https://erp.xair.cn/K3Cloud/html5/"  #与 start_web.ps1 的默认 -Url 一致；页签被关时自愈重开用
 _JS_TIMEOUT = 20.0
 _POLL_S = 0.5
@@ -423,9 +430,12 @@ _JS_TOOLBAR_NEW = r"""
 
 _JS_ACTIVE_TAB = r"""
 (() => {
-  //当前活动页签标题：提交后金蝶把「调拨申请单 - 新增」换成带单据编号的标题（提交落地信号之一）
+  //当前活动页签标题：提交后金蝶把「调拨申请单 - 新增」换成带单据编号/「- 修改」的标题
+  //（提交落地信号之一，也是 WebNewBill 判「当前单已进 ERP 不必再放弃」的依据）
+  //⚠️限定 top<100 顶栏：弹窗内部 tabstrip 也带 k-state-active，不过滤会读错（2026-11-25 dump 实证）
   const li = [...document.querySelectorAll('.k-tabstrip-items .k-item')]
-    .find(e => /k-state-active/.test(e.className || '') && e.getBoundingClientRect().width > 10);
+    .find(e => /k-state-active/.test(e.className || '')
+             && e.getBoundingClientRect().width > 10 && e.getBoundingClientRect().top < 100);
   return li ? (li.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 30) : '';
 })()
 """
@@ -447,6 +457,50 @@ _JS_LABEL_INPUT = r"""
     host = host.parentElement;
   }
   return {err: 'no-input'};
+})()
+"""
+
+_JS_TAB_BY_TEXT = r"""
+(() => {
+  //顶栏页签里【标题精确等于 want】的那个坐标（下推后切回来源单页签用，want 传完整标题）。
+  //⚠️精确等值不能前缀/includes：「调拨申请单」会命中「调拨申请单列表」和空白「- 新增」，
+  //  切错页签再点新增就开错单（2026-11-25 实测踩全两种）。限定 top<100 排除弹窗内部 tab
+  const want = %s;
+  const el = [...document.querySelectorAll('.k-tabstrip-items .k-item')].find(e => {
+    const r = e.getBoundingClientRect();
+    return r.width > 10 && r.top < 100 && (e.innerText || '').replace(/\\s+/g, ' ').trim() === want;
+  });
+  if (!el) return {err: 'not-found', want};
+  const r = el.getBoundingClientRect();
+  return {x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), text: want};
+})()
+"""
+
+_JS_TAB_TITLES = r"""
+(() => [...document.querySelectorAll('.k-tabstrip-items .k-item')]
+  //⚠️必须限定顶栏区域（top<100）：下推「选择单据」弹窗内部也有 k-tabstrip（参数选择），
+  //  不过滤会把弹窗内部 tab 误当新页签（2026-11-25 实测假阳性）
+  .filter(e => { const r = e.getBoundingClientRect(); return r.width > 10 && r.top < 100; })
+  .map(e => (e.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 24)))()
+"""
+
+_JS_PUSH_OK_BTN = r"""
+(() => {
+  //下推「选择单据」弹窗（分步式调出单/直接调拨单 单选 + 转换规则/单据类型，异步加载）。
+  //只认含「选择单据」的窗；返回其【确定】坐标 + 弹窗文本。窗没弹/已关 → noPop
+  const vis = e => { const r = e.getBoundingClientRect(); return r.width > 100 && r.height > 80; };
+  const w = [...document.querySelectorAll('.k-window,.kd-dynamicform-active,[class*=dialog]')]
+    .filter(vis).find(e => /选择单据/.test(e.innerText || ''));
+  if (!w) return {noPop: true};
+  const b = [...w.querySelectorAll('a,button,span,div')].find(e => {
+    const r = e.getBoundingClientRect();
+    return (e.textContent || '').trim() === '确定' && r.width > 10 && r.height > 6
+      && !/disabled/i.test((e.className || '') + (e.parentElement && e.parentElement.className || ''));
+  });
+  if (!b) return {noOk: true, text: (w.innerText || '').replace(/\\s+/g, ' ').slice(0, 60)};
+  const r = b.getBoundingClientRect();
+  return {x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2),
+          text: (w.innerText || '').replace(/\\s+/g, ' ').slice(0, 60)};
 })()
 """
 
@@ -948,7 +1002,9 @@ _JS_FOCUS_INPUT = r"""
   inp.focus();
   const ok = document.activeElement === inp;
   if (ok) { try { inp.select && inp.select(); } catch (e) {} }
-  return {ok, err: ok ? null : 'focus-fail'};
+  const r = inp.getBoundingClientRect();
+  return {ok, err: ok ? null : 'focus-fail',
+          x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2)};
 })()
 """
 
@@ -1263,10 +1319,18 @@ def _type_into_cell(cdp, pid, key, row, value, f7, tag):
     time.sleep(0.2)
     cdp.key_delete()
     time.sleep(0.2)
-    cdp.type_text(value)
+    if f7 and _CJK_RE.search(value):
+        #F7 列填中文名称（如 电子仓/委外仓）：insertText 不触发 typeahead，必须逐字符键入
+        #让金蝶弹模糊匹配下拉，唯一命中时 Enter 直接选中（2026-11-25 实测：键入「电子仓」+Enter
+        #格子落地显示「电子仓」；此前 insertText 写法 Enter 后被判空清空）。多命中时 Enter
+        #行为未校准，用户口径是组织内名称唯一；不唯一时格子会被金蝶清空 → 校验报错，不会假成功
+        cdp.type_chars(value)
+        time.sleep(1.5)  #等模糊下拉过滤稳定再 Enter（实验8 用的 2s，留 1.5s 余量）
+    else:
+        cdp.type_text(value)
     time.sleep(0.3)
     if f7:
-        cdp.key_enter2()  #F7：Enter 让金蝶解析编码并联动带出名称/单位
+        cdp.key_enter2()  #F7：Enter 让金蝶解析编码/唯一模糊命中并联动带出名称/单位
     else:
         cdp.key_tab2()    #普通列：Tab 失焦提交（实测发 UpdateValue）
     time.sleep(1.2)
@@ -1672,6 +1736,15 @@ class WebNewBill(CustomAction):
         param = _params(argv)
         if param is None:
             return False
+        #最后一张单不开新单：留在当前单（提交链路下当前单已进 ERP）或直接收尾，
+        #省得每张跑完多开一张空白新增单（2026-11-25 用户口径；单张 Excel 同样走这条）
+        try:
+            import transfer_actions
+            if transfer_actions.is_last_order():
+                print("[WebNewBill] 已是最后一张 → 不点新增，留在当前单收尾")
+                return True
+        except Exception:
+            pass  #队列读不到就按老行为开新单，保守不崩
         wait_label = str(param.get("wait_label", "") or "").strip()
         timeout_s = float(param.get("timeout_ms", 60000) or 60000) / 1000.0
         header_key = _LABEL_TO_HEADER.get(wait_label)
@@ -1972,12 +2045,19 @@ class WebSetHeaderField(CustomAction):
         # ---- 路A：键入 + Enter ----
         f = cdp.js(_JS_FOCUS_INPUT % (json.dumps(pid), json.dumps(key))).get("value") or {}
         if f.get("ok"):
-            cdp.select_all()
+            #清空：F7 框里 Ctrl+A 不生效（血泪结论#11），用三击建立选区再 Delete
+            cdp.triple_click(f["x"], f["y"])
             time.sleep(0.2)
             cdp.key_delete()
             time.sleep(0.2)
-            cdp.type_text(target)
-            time.sleep(0.3)
+            if _CJK_RE.search(target):
+                #中文名称走逐字符键入→typeahead 模糊下拉→唯一命中 Enter 直接选中
+                #（2026-11-25 实测：insertText 不触发 typeahead，申请人/仓库中文名都靠这条）
+                cdp.type_chars(target)
+                time.sleep(1.5)  #等模糊下拉过滤稳定
+            else:
+                cdp.type_text(target)
+                time.sleep(0.3)
             cdp.key_enter2()
             time.sleep(2.0)
             #申请组织=主业务组织：变更后金蝶弹横幅要确认，确认后同页签被重置成新单
@@ -2577,6 +2657,25 @@ def _toolbar_step(cdp, pid, label, tag, probe_wait=2.0):
     return True, None
 
 
+def _submit_landed(cdp, tag, before_tab):
+    #提交落地判据（申请单/下推目标单共用，DRY）：轮询 8s 等异步出号，
+    #硬判据=「单据编号」出真值；次判据=页签标题脱离「新增」（金蝶保存/提交后改「- 修改」）。
+    #都读不到 → False 停下，绝不假装成功
+    end = time.time() + 8.0
+    while True:
+        num, tab, st = _landing_signals(cdp)
+        val = (num.get("value") or "").strip()
+        if val and val != (num.get("placeholder") or "").strip():
+            print(f"[{tag}] 提交落地：单据编号={val!r}")
+            return True
+        if tab and tab != before_tab and "新增" not in tab:
+            print(f"[{tag}] 提交疑似落地（页签 {before_tab!r}→{tab!r}，编号未读到，请校准判据）")
+            return True
+        if time.time() >= end:
+            return False
+        time.sleep(1.0)
+
+
 def _landing_signals(cdp):
     #提交/审核的落地信号（不赌状态文案，全打日志供首轮真单校准）：
     #  ①「单据编号」从占位变成真实编号 ②活动页签标题变化 ③单据状态字段文本
@@ -2605,22 +2704,12 @@ class WebSubmit(CustomAction):
             if not pid:
                 print(f"[WebSubmit] {err}")
                 return False
+            tab0 = cdp.js(_JS_ACTIVE_TAB).get("value") or ""
             ok, detail = _toolbar_step(cdp, pid, "提交", "WebSubmit")
             if not ok:
                 print(f"[WebSubmit] {detail}")
                 return False
-            num, tab, st = _landing_signals(cdp)
-            #提交成功的硬判据只认「单据编号出号」：占位文案「保存时自动生成」被真编号顶掉
-            val = (num.get("value") or "").strip()
-            if val and val != (num.get("placeholder") or "").strip():
-                print(f"[WebSubmit] 提交落地：单据编号={val!r}")
-                return True
-            #页签标题从「新增」变成带编号标题也算；两者都没有 → 报错停下（绝不假装成功）
-            if tab and "新增" not in tab:
-                print(f"[WebSubmit] 提交疑似落地（页签={tab!r}，编号未读到，首轮真单请校准判据）")
-                return True
-            print(f"[WebSubmit] 点了提交但没读到落地信号（编号={val!r} 页签={tab!r}）→ 停下")
-            return False
+            return _submit_landed(cdp, "WebSubmit", tab0)
         finally:
             cdp.close()
 
@@ -2654,6 +2743,108 @@ class WebAudit(CustomAction):
                 return True
             print(f"[WebAudit] 点了审核但「下推」仍是灰/找不到（{dp}）→ 停下（首轮真单请校准判据）")
             return False
+        finally:
+            cdp.close()
+
+
+@AgentServer.custom_action("WebPushDown")  #顶栏「下推」：前置=已审核（按钮灰则拒点）；落地=新目标单据页签出现
+class WebPushDown(CustomAction):
+
+    def run(
+            self,
+            context: Context,
+            argv: CustomAction.RunArg,
+    ) -> bool:
+
+        cdp = _open("WebPushDown")
+        if cdp is None:
+            return False
+        try:
+            pid, err = _draft(cdp, "WebPushDown")
+            if not pid:
+                print(f"[WebPushDown] {err}")
+                return False
+            before = cdp.js(_JS_TAB_TITLES).get("value") or []
+            #先记住来源单页签的完整标题（此刻活动页签就是它），下推后按精确标题切回——
+            #不能按「调拨申请单」前缀找：会命中「...列表」或遗留空白「- 新增」（2026-11-25 实测）
+            src_tab = cdp.js(_JS_ACTIVE_TAB).get("value") or ""
+            btn = cdp.js(_JS_TOOLBAR_BTN % json.dumps("下推", ensure_ascii=False)).get("value") or {}
+            if not btn.get("x"):
+                print(f"[WebPushDown] 顶栏「下推」找不到: {btn}")
+                return False
+            if btn.get("grey"):
+                print("[WebPushDown] 「下推」是灰的（审核没成功，绝不硬点）")
+                return False
+            cdp.click(btn["x"], btn["y"])
+            print("[WebPushDown] 已点顶栏「下推」，等「选择单据」弹窗…", flush=True)
+
+            #「选择单据」弹窗里转换规则/单据类型是异步加载的，早于就绪点确定=点了没生效
+            #（2026-11-25 实测：+1.2s 点确定，弹窗还开着、下推没成）。轮询到「确定」可点再点
+            ok = {}
+            end = time.time() + 12.0
+            while time.time() < end:
+                time.sleep(0.8)
+                ok = cdp.js(_JS_PUSH_OK_BTN).get("value") or {}
+                if ok.get("x"):
+                    break
+            if not ok.get("x"):
+                print(f"[WebPushDown] 「选择单据」弹窗没就绪（{ok}）→ 停下")
+                return False
+            cdp.click(ok["x"], ok["y"])
+            print(f"[WebPushDown] 已点弹窗「确定」（{ok.get('text','')[:40]}）", flush=True)
+
+            #下推落地=弹窗关闭 + 冒出一个新顶栏页签（目标单据，如「直接调拨单 - 新增」）。
+            #⚠️新页签判据必须等弹窗关掉后再读：弹窗内部「参数选择」tab 会被误当页签（同日实测）
+            landed = False
+            new = []
+            end2 = time.time() + 12.0
+            while time.time() < end2:
+                time.sleep(1.0)
+                still = cdp.js(_JS_PUSH_OK_BTN).get("value") or {}
+                after = cdp.js(_JS_TAB_TITLES).get("value") or []
+                new = [t for t in after if t not in before]
+                if still.get("noPop") and new:  #弹窗已关 + 真有新页签
+                    landed = True
+                    break
+            if not landed:
+                print(f"[WebPushDown] 点了确定但没落地（弹窗还在={not still.get('noPop')} 新页签={new}）→ 停下")
+                return False
+            print(f"[WebPushDown] 下推落地：新页签 {new}", flush=True)
+
+            #下推出的目标单（如「分步式调出单 - 新增」）还要点一次「提交」整单才算完成
+            #（2026-11-25 用户口径+活体实测）。切到新页签 → 提交 → 验落地 → 再切回来源单
+            tgt = new[0]
+            tsel = cdp.js(_JS_TAB_BY_TEXT % json.dumps(tgt, ensure_ascii=False)).get("value") or {}
+            if not tsel.get("x"):
+                print(f"[WebPushDown] 找不到下推结果页签 {tgt!r} → 停下")
+                return False
+            cdp.click(tsel["x"], tsel["y"])
+            time.sleep(2.0)
+            ok, detail = _toolbar_step(cdp, None, "提交", "WebPushDown", probe_wait=2.5)
+            if not ok:
+                print(f"[WebPushDown] 目标单提交失败: {detail}")
+                return False
+            if not _submit_landed(cdp, "WebPushDown·目标单", tgt):
+                print("[WebPushDown] 目标单点了提交但没读到落地信号 → 停下")
+                return False
+
+            #切回来源单页签再收工：NewBill 点的是【当前页签】顶栏「新增」，
+            #停在目标单页签上会开出错单据类型（2026-11-25 对抗性检查发现）。
+            #⚠️目标单提交后标题会从「- 新增」变「- 修改」，所以按"提交后仍在活动位"
+            #  的实时标题找来源页签，不能拿落地前的旧标题（会 not-found）
+            now_tab = cdp.js(_JS_ACTIVE_TAB).get("value") or ""
+            if src_tab and now_tab != src_tab:
+                #活动位还停在目标单（提交后改名了）：来源页签用记住的 src_tab 精确找
+                back = cdp.js(_JS_TAB_BY_TEXT % json.dumps(src_tab, ensure_ascii=False)).get("value") or {}
+                if back.get("x"):
+                    cdp.click(back["x"], back["y"])
+                    time.sleep(1.5)
+                    print(f"[WebPushDown] 已切回来源页签「{back.get('text')}」")
+                    return True
+                print(f"[WebPushDown] ⚠️下推+目标单提交都成功，但切不回来源页签（{back}）→ 停下，防 NewBill 开错单")
+                return False
+            print("[WebPushDown] 目标单已提交，活动页签即来源单，无需切换")
+            return True
         finally:
             cdp.close()
 

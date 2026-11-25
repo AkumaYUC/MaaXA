@@ -146,6 +146,10 @@ def _build_order(index, items, cols, template):
 
     if template == "requisition" and not order.demand_date:
         order.demand_date = _today_text()  #Excel列名写着（当天），留空就是今天
+        #⚠️必须回写首行：_row_value/_order_value/_header_value_from_order 读的都是 items[0]，
+        #  只设 order.demand_date 则 Web/UIA 端拿到的还是空串 → 「留空按当天」形同虚设
+        #  （2026-11-25 实测：Excel 需求日期留空 → demand_date 值为空跳过 → 提交被必填校验拦下）
+        first.demand_date = order.demand_date
 
     #必填看所有列：直接调拨单的仓库是明细列但整单一致（order=False, required=True），
     #只遍历 order_cols 会把它漏掉 —— 旧版是直接检查 first.source_warehouse 的，别把这条校验写没了
@@ -154,9 +158,17 @@ def _build_order(index, items, cols, template):
             raise ExcelFormatError(f"第 {first.row_index} 行：{c['label']}为空，每张单的首行必须填")
 
     if template == "requisition" and order.transfer_type not in _TRANSFER_TYPES:
-        #模版单元格印着「组织内调拨/跨组织调拨」两个候选，照原样粘进金蝶必然失败，在这里就拦下
+        #调拨类型在金蝶下拉里只有「组织内调拨/跨组织调拨」两个候选（账套实测），填别的必然失败。
+        #委外发料/研发用料这类是「调拨申请类型」的选项 —— 列错位是真实单据的高频手误，
+        #报错直接点名另一列，省得用户对着两个合法值猜（申请类型候选按账套配置不固定，故不枚举）
+        hint = ""
+        if order.apply_type and order.apply_type == order.transfer_type:
+            hint = f"「{order.transfer_type}」和申请类型重复，调拨类型应另填"
+        elif order.apply_type:
+            hint = f"「{order.transfer_type}」像是「调拨申请类型」的值，检查这两列是否填错列"
         raise ExcelFormatError(
-            f"第 {first.row_index} 行：调拨类型「{order.transfer_type}」不是合法值，只能填 {' 或 '.join(_TRANSFER_TYPES)}")
+            f"第 {first.row_index} 行：调拨类型「{order.transfer_type}」不是合法值，"
+            f"只能填 {' 或 '.join(_TRANSFER_TYPES)}" + (f"；{hint}" if hint else ""))
 
     for item in items[1:]:  #其余行留空正常，填了就必须和首行一致；同一组织写成两种写法也会在这里被拦下
         for c in order_cols:

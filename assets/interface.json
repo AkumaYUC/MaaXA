@@ -25,10 +25,8 @@
 
     "controller": [
         {
-            // 网页端占位连接：Web* 动作全部经 CDP(9333) 直驱页面，不用这里的截图/键鼠；
+            // 网页端占位连接：Web 动作全部经 CDP(9333) 直驱页面，不用这里的截图/键鼠；
             // MAA 框架要求任务必须有已连接控制器，这里给一个永不误伤前台的配置（绝不 Seize）。
-            // class_regex 用 Chrome_WidgetWin_1 精确命中 Edge/Chrome 窗口，与金蝶客户端 HwndWrapper[...] 天然区分
-            // ⚠️排第一：MFAAvalonia 启动时不恢复上次选择，控制器下拉默认取数组首项（2026-11-24 实测）
             "name": "网页端",
             "type": "Win32",
             "win32": {
@@ -112,7 +110,8 @@
                 "网页"
             ],
             "option": [
-                "调拨申请单文件(网页)"
+                "调拨申请单文件(网页)",
+                "是否提交并下推单据"
             ]
         },
         {
@@ -200,6 +199,34 @@
                     "custom_action_param": { "path": "{调拨申请单文件(网页)}", "template": "requisition" }
                 }
             }
+        },
+        "是否提交并下推单据": {
+            "type": "switch",
+            "label": "是否提交并下推单据",
+            "description": "开：每张单填完自动 提交→审核→下推（真单进 ERP 工作流，审核后不可逆，确认是真实单据再开）。关：只填写不提交，跑完留未保存页签手动关（默认，测试行为）。",
+            "default_case": "No",
+            "cases": [
+                {
+                    "name": "Yes",
+                    "pipeline_override": {
+                        "TransferRequisitionFormFillLocInWeb": {
+                            "next": [
+                                "TransferRequisitionFormSubmitWeb"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "No",
+                    "pipeline_override": {
+                        "TransferRequisitionFormFillLocInWeb": {
+                            "next": [
+                                "TransferRequisitionFormNewBillWeb"
+                            ]
+                        }
+                    }
+                }
+            ]
         }
     }
 }
