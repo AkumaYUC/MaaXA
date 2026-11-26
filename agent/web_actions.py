@@ -1,72 +1,60 @@
 #网页后台字段填写自定义动作（CDP 驱动已登录的金蝶云 HTML5 网页端，不抢前台、不动用户键鼠）
 #pipeline侧接口约定（节点action都填Custom，custom_action填下面的动作名；param 与 uia_actions 同名同义，Excel 契约不变）：
-#  前置：pretask start_web.ps1 拉起带 --remote-debugging-port 的专用 Edge（独立 profile，登录一次长期复用；
-#        用户手动开的普通 Edge 没调试端口 CDP 连不上，所以专用实例由 agent 自愈拉起，2026-11-24 澄清），
-#        页面停在 K3Cloud html5 主控台；本模块只连这个已打开的页面，绝不 navigate（裸导航会销毁金蝶会话，实测）
+#  前置：pretask start_web.ps1 拉起带 --remote-debugging-port 的专用 Edge（独立 profile，登录一次长期复用），
+#        页面停在 K3Cloud html5 主控台；本模块只连这个已打开的页面，绝不 navigate（裸导航会销毁金蝶会话）
 #  依赖：websocket-client（requirements.txt）；Edge 没开 / 页面不在 K3Cloud / 登录态失效 → 动作 False 走 on_error，
 #        日志会写明是哪种（排查用 WebPing）
-#  WebSetForm         param: {"form": "requisition"}  切换单据白名单；v1 只支持 requisition（直接调拨单冻结为前台基线）
+#  WebSetForm         param: {"form": "requisition"}  切换单据白名单；v1 只支持 requisition（直接调拨单为前台基线）
 #  WebNavigate        param: {"text": "调拨申请单列表", "wait_label": "申请组织", "timeout_ms": 60000}
 #                     主控台点 text → 等列表 → 点「新增」→ 等编辑页就位（wait_label 对应单头字段出现）
-#                     ⚠️ v1 不关旧草稿：测试期每跑一单留一个未保存页签，跑完手动关（保存链路落地后此条作废）
 #  WebSetCell         param: {"field": "material_code", "row": 0, "value": "05-002-03064"}
-#                     明细格子写值：走【真实输入链】——双击进编辑态→Ctrl+A→Delete→键入→F7列Enter/普通列Tab。
-#                     ⚠️F7 列值含中文（如 电子仓/委外仓）时自动改走【逐字符键入+Enter】：
-#                     insertText 不触发 typeahead（血泪结论#4），逐字符弹模糊下拉、唯一命中 Enter 直接选中
-#                     （2026-11-25 实测通过，用户口径：名称在组织内唯一就不用记编码）。
-#                     多命中时 Enter 行为未校准：金蝶会留空/选错 → 校验不过报错，绝不假成功
-#                     ⚠️2026-11-20 保存实测推翻旧口径：model.set 只改 kendo 显示数据源，不进 billModel，
-#                     保存序列化读的是 billModel，所以 model.set 写的明细保存时全被判空（服务器报必填错）。
-#                     只有真实键入触发的金蝶 UpdateValue 才进模型；F7 列 Enter 后金蝶自己解析编码带出名称。
-#                     写完读【显示层】校验：物料列看名称列被带出、其他 F7 看非空非 select、普通列看含写入值。
+#                     明细格子写值：双击进编辑态 → 清空 → 键入 → F7 列 Enter / 普通列 Tab
+#                     F7 列值含中文时改走逐字符键入 + Enter：insertText 不触发 typeahead，
+#                     逐字符键入才会弹模糊下拉，唯一命中时 Enter 直接选中；多命中时金蝶会留空或选错，
+#                     由校验报错，不假成功
+#                     写入必须走真实输入链：model.set 只改显示层、不进 billModel，保存时被判空；
+#                     只有真实键入触发的金蝶 UpdateValue 才进模型，F7 列 Enter 后由金蝶解析编码带出名称
+#                     写完读显示层校验：物料列看名称列被带出、其他 F7 看非空非 select、普通列看含写入值
 #                     空值=本行无需填这列，记日志返回True（与 UiaSetCell 一致）
-#                     仓位弹性域（source_location/target_location）走「维度数据录入」弹窗链路（2026-11-23 实测）：
-#                       双击格子→td 内维度图标→维度弹窗。填值两条路：
-#                       路A（主路）：弹窗内 F7 输入框【逐字符键入】（先清空，防重跑追加）→ 金蝶「全模糊匹配」
-#                         下拉 → 点命中行 → 弹窗「确定」。编码（120）和名称片段（领益）都命中，
-#                         且能查到值集列表首页之外的编码——这是唯一覆盖全值集的通道。
-#                       路B（兜底）：F7 放大镜 → 值集列表窗 → dataSource 匹配 → 「返回」→ 确定（只覆盖首页15项）。
-#                       两条路都查不到就清场返回 False 并列出样例，绝不选第一行；格子最终显示值集项名称。
+#                     仓位弹性域（source_location/target_location）走「维度数据录入」弹窗链路：
+#                       双击格子 → td 内维度图标 → 维度弹窗。填值两条路：
+#                       路A（主路）：弹窗内 F7 输入框逐字符键入（先清空，防重跑追加）→ 金蝶「全模糊匹配」
+#                         下拉 → 点命中行 → 弹窗「确定」。编码和名称片段都命中，能查到值集列表首页之外的编码
+#                       路B（兜底）：F7 放大镜 → 值集列表窗 → dataSource 匹配 → 「返回」→ 确定（只覆盖首页15项）
+#                       两条路都查不到就清场返回 False 并列出样例，绝不选第一行；格子最终显示值集项名称
 #  WebFillColumn      param: {"field": "quantity"} / {"field": "source_org", "broadcast": true}
 #                     整列逐行走真实输入链；broadcast=整单一个值铺每行（申请单调出/调入组织是明细列，每行都填）
 #                     界面行数不足 Excel 行数时点「新增行」补齐（真实输入链不像 model.set 能凭空扩行）
 #  WebSetHeaderField  param: {"field": "contact", "value": "张三"}
-#                     文本/日期 → CDP 真实输入链（focus→insertText→Tab）。
-#                     ⚠️实测：纯 JS 的 控件.value() 只改显示层，保存校验照样判空；只有真实输入链会提交进金蝶模型
+#                     文本/日期 → CDP 真实输入链（focus→insertText→Tab）；纯 JS 写 value 只改显示层，保存校验照样判空
 #                     基础资料（apply_org/applicant）→ 放大镜 → 金蝶自己的选择弹窗 → 快捷过滤/可见行按名称匹配 → 「返回数据」
-#                       ⚠️半实测：通道端到端成立（放大镜→选行→返回数据→值进模型 已验证）；
-#                       按姓名过滤那一步依赖弹窗快捷框出现，匹配不到就关弹窗返回 False，绝不选第一行
+#                       匹配不到就关弹窗返回 False，绝不选第一行
 #  WebPickCombo       param: {"field": "transfer_type", "value": "组织内调拨"}
-#                     下拉：遍历候选 value 逐个试选、读显示文本与目标**等值**匹配后提交再回读
+#                     下拉：遍历候选 value 逐个试选、读显示文本与目标等值匹配后提交再回读
 #                     账套选项不同也通用（零硬编码业务词）；找不到等值项还原原值并 False，日志列出候选数
 #  WebBlockPaste      param: {"field": "quantity"} / {"field": "source_warehouse", "broadcast": true} / {"field": "material_code", "values": ["a","b"]}
-#                     整列块粘贴（几百物料的正解，2026-11-24 实测 7 行物料 2.2s、数量 7.8s，逐行要 26s）：
-#                     右键首格 → 点「块粘贴」→ 弹窗 textarea 灌整列换行文本 → 点「确定」→ 校验整列非空。
-#                     ⚠️提交必须点「确定」：textarea 里 Enter 只是换行，按回车整列不落地（实测）
-#                     ⚠️粘贴前不补行：金蝶块粘贴自动扩行（2026-11-24 实测 1 行草稿粘 7 值 → 8 行）；
-#                     新草稿 0 行时兜底点一次「新增行」给粘贴一个落点（同日实测 0 行直接定位失败）
+#                     整列块粘贴（几百物料的正解）：右键首格 → 点「块粘贴」→ 弹窗 textarea 灌整列换行文本 →
+#                     点「确定」→ 校验整列非空
+#                     提交必须点「确定」：textarea 里 Enter 只是换行，按回车整列不落地
+#                     粘贴前不补行：金蝶块粘贴自动扩行；新草稿 0 行时兜底点一次「新增行」给粘贴一个落点
 #                     物料列校验读名称列被金蝶带出（编码解析成功的标志）；弹性域（仓位）不支持块粘贴
 #  WebPatchFill       param: {"field": "source_warehouse"}  整单同值列一次铺开（批量填充）：
-#                     源格填值 → 单击该格选中 → 点明细工具栏「批量填充」→ 一次铺满整列（7.3~12s/列）。
-#                     ⚠️前提：物料列必须已有值，金蝶对空行拒绝填充（2026-11-24 用户人工操作证实，
-#                     此前十几轮自动化失败全因物料列为空）；按钮只认真实鼠标事件，JS .click() 无效
-#                     源格失败自动重试一次（连续填充后网格异步收尾会抖动）
-#                     铺开段（单击选中→点填充→校验）整体重试 2 轮，校验 8s 轮询；单击后校验 current 列名，
-#                     漂移则重单击（2026-11-24 GUI 第4列 0/7 抖动，只重试源格盖不住）
+#                     源格填值 → 单击该格选中 → 点明细工具栏「批量填充」→ 一次铺满整列
+#                     前提：物料列必须已有值，金蝶对空行拒绝填充；按钮只认真实鼠标事件，JS .click() 无效
+#                     源格填值失败自动重试一次；铺开段（单击选中→点填充→校验）整体重试 2 轮，校验 8s 轮询，
+#                     current 列名漂移则重单击
 #  WebReadCell        param: {"field": "source_warehouse", "row": 0, "expect": "关键词"}
 #                     回读明细格子（编码+名称拼接后判断），判据三选一优先级同 UiaReadCell：not_expect > nonzero > expect
 #  WebRowCount        (custom_recognition) param: {"field": "material_code"}
 #                     界面已填物料的行数 == Excel 队列行数才命中；inverse:true 反向（配自环重试）
 #  WebPing            param: {}  探测 CDP/登录态/当前页形态，排查连接问题用（正常流程不调）
 #  WebSubmit          param: {}  顶栏「提交」真实鼠标点击 + 确认弹窗点确定。落地硬判据=
-#                     「单据编号」由占位「保存时自动生成」变真编号（或页签标题脱离「新增」）。
-#                     ⚠️真单进 ERP 工作流：由任务开关「是否提交并下推单据」接入链路（Yes 才走），
-#                     默认 No=只填不提交（2026-11-25 真实单据校准）
-#  WebAudit           param: {}  顶栏「审核」，同 WebSubmit 机制；前置=已提交（按钮灰则拒点）。
-#                     落地硬判据=「下推」按钮由灰变亮（用户截图实证的功能信号，不赌状态文案）
+#                     「单据编号」由占位「保存时自动生成」变真编号（或页签标题脱离「新增」）
+#                     真单进 ERP 工作流：由任务开关「是否提交并下推单据」接入链路（Yes 才走），默认 No=只填不提交
+#  WebAudit           param: {}  顶栏「审核」，同 WebSubmit 机制；前置=已提交（按钮灰则拒点）
+#                     落地硬判据=「下推」按钮由灰变亮（不赌状态文案）
 #  WebPushDown        param: {}  顶栏「下推」；前置=已审核（灰则拒点）。落地判据=弹窗关+新目标单据页签；
 #                     随后自动切到新页签对目标单（如 分步式调出单）点一次「提交」——整单才算完成
-#                     （2026-11-25 活体实测：编号 FBDC223163 出号、页签转「- 修改」）；最后切回来源单页签
 
 import json
 import os
@@ -141,7 +129,7 @@ _LABEL_TO_HEADER = {
     "调拨类型": "FTRANSTYPE", "调拨申请类型": "F_JF_REQUIRETYPE", "备注": "FREMARKS",
 }
 
-_FORMS = ("requisition",)  #v1 只做调拨申请单；直接调拨单维持前台基线（11-16 冻结口径）
+_FORMS = ("requisition",)  #v1 只做调拨申请单；直接调拨单维持前台基线
 _ACTIVE_FORM = None
 
 #====================== CDP 管道 ======================
@@ -170,10 +158,7 @@ _EDGE_LAUNCHED = False
 
 
 def _ensure_edge():
-    #9333 没起就自己跑 start_web.ps1 —— MFAAvalonia 2.14.0 不认数组格式的 pretask，
-    #网页端的浏览器启动只能由 agent 自管（2026-11-23 实测：数组 pretask 被整个静默跳过）
-    #⚠️这里拉起的是【专用调试 Edge】（独立 profile、带 CDP 端口），不是金蝶桌面客户端；
-    #  用户手动开的普通 Edge 没有调试端口，CDP 连不上，只能由本脚本自启（2026-11-24 澄清）
+    #拉起专用调试 Edge（独立 profile、带 CDP 端口）；普通 Edge 无调试端口，CDP 连不上
     global _EDGE_LAUNCHED
     with _EDGE_LAUNCH_LOCK:
         if _EDGE_LAUNCHED:
@@ -195,8 +180,7 @@ def _ensure_edge():
 
 
 def _open_k3cloud_tab():
-    #Edge 活着但 K3Cloud 页签被用户关了/导航走了 → CDP HTTP 接口直接开一个新页签
-    #（PUT /json/new，2026-11-24 用户需求：GUI 不重启也能把 web 端拉回来）
+    #Edge 活着但 K3Cloud 页签被关掉/导航走 → 走 CDP HTTP 接口（PUT /json/new）重开一个页签，免重启 GUI
     try:
         req = urllib.request.Request(
             f"http://127.0.0.1:{_CDP_PORT}/json/new?{urllib.parse.quote(_WEB_URL, safe=':/')}", method="PUT")
@@ -236,8 +220,7 @@ class _Cdp:
                                               max_size=None, enable_multithread=True)
         self._id = 0
         self._cmd("Runtime.enable")
-        #窗口被遮挡时浏览器节流 rAF/定时器，金蝶开单渲染被拖慢（2026-11-24 卡列表 60s 根因）
-        #→声明页面恒为聚焦态，解除后台节流；只骗页面，不抢用户真实焦点
+        #窗口被遮挡时浏览器会节流 rAF/定时器，金蝶渲染随之变慢；声明页面恒为聚焦态以解除节流（只改页面可见性，不抢真实焦点）
         self._cmd("Emulation.setFocusEmulationEnabled", {"enabled": True})
 
     def _cmd(self, method, params=None):
@@ -300,7 +283,6 @@ class _Cdp:
                                                  "windowsVirtualKeyCode": 13, "nativeVirtualKeyCode": 13})
 
     # ---- 真实输入链原语（明细格子/单元格提交必须走金蝶自己的键盘监听，
-    #      2026-11-20 实测：model.set 与 控件.value() 都不进 billModel，
     #      只有真实键入触发的 UpdateValue 才是正道；insertText 不算真实键入，但填编辑器值可用） ----
 
     def dbl_click(self, x, y):
@@ -310,8 +292,8 @@ class _Cdp:
                                                    "button": "left", "clickCount": cc})
 
     def triple_click(self, x, y):
-        #三击全选：金蝶 F7 输入框里 Ctrl+A(select_all) 不生效（2026-11-23 实测格子已有值时
-        #键入变追加 "120"→"120120"），只有三击建立选区 + Delete 才能清空重填
+        #三击全选：金蝶 F7 输入框里 Ctrl+A 不生效（格子有值时键入会追加而非替换），
+        #只有三击建立选区 + Delete 才能清空重填
         for typ, cc in (("mousePressed", 1), ("mouseReleased", 1),
                         ("mousePressed", 2), ("mouseReleased", 2),
                         ("mousePressed", 3), ("mouseReleased", 3)):
@@ -345,8 +327,8 @@ class _Cdp:
         self.key("Tab", "Tab", 9)
 
     def type_chars(self, text, gap=0.35):
-        #逐字符真实按键（rawKeyDown+char+keyUp）——金蝶 F7 的全模糊匹配下拉只认这种输入：
-        #insertText 只设 DOM value 不触发 typeahead（2026-11-23 实测），必须逐字符派发键盘事件
+        #逐字符真实按键（rawKeyDown+char+keyUp）：金蝶 F7 的全模糊匹配下拉只认这种输入，
+        #insertText 只设 DOM value、不触发 typeahead
         for ch in str(text):
             self._cmd("Input.dispatchKeyEvent", {"type": "rawKeyDown", "key": ch, "code": "Key",
                                                  "windowsVirtualKeyCode": 0, "nativeVirtualKeyCode": 0})
@@ -647,7 +629,7 @@ _JS_HEADER_VISIBLE = r"""(() => {
 })()
 """
 
-#====================== 明细真实输入链（2026-11-20 保存实测推翻 model.set 后的正道） ======================
+#====================== 明细真实输入链（model.set 只改显示层，保存必须走真实键入） ======================
 
 _JS_CELL_XY = r"""
 (() => {
@@ -675,9 +657,8 @@ _JS_CELL_XY = r"""
 """
 
 #====================== 仓位弹性域（维度数据录入弹窗链路）======================
-#2026-11-23 实测结构：仓位格编辑器 = k-textbox + .ui-cloumn-editor-icon 图标；
-#点图标弹「维度数据录入」窗，窗内是一个 bosf7field（维度名由账套配置，本账套叫「供应商」，
-#代码不写死维度名，只认弹窗里第一个 F7 编辑器）；F7 走放大镜→列表→返回数据，最后弹窗「确定」提交。
+#仓位格编辑器 = k-textbox + .ui-cloumn-editor-icon 图标；点图标弹「维度数据录入」窗，窗内是一个 bosf7field
+#（维度名由账套配置，代码不写死，只认弹窗里第一个 F7 编辑器）；F7 走放大镜→列表→返回数据，最后弹窗「确定」提交。
 
 _JS_FLEX_ICON = r"""
 (() => {
@@ -1259,7 +1240,6 @@ def _order_value(field):
 
 def _ensure_rows(cdp, pid, need, tag):
     #界面行数不够 Excel 行数时点「新增行」补齐（真实输入链不像 model.set 能凭空扩行；
-    #2026-11-23 实测网页端填物料也不会自动增行，和 UIA 端不同，必须显式加行）
     #点击必须走 CDP 真实鼠标：金蝶工具栏按钮 JS .click() 无效（ok:true 但行数不动）
     for _ in range(60):
         r = cdp.js(_JS_ROW_COUNT % json.dumps(pid))
@@ -1281,8 +1261,8 @@ def _ensure_rows(cdp, pid, need, tag):
 
 
 def _cell_text(cdp, pid, key, row, tag):
-    #读明细格子的【显示文本】——显示层=billModel 层，model.set 的假值读不出来，
-    #这正是 2026-11-20 保存实测后定的校验口径：金蝶没解析成功时格子里是空或 select
+    #读明细格子的【显示文本】（显示层=billModel 层，model.set 的假值读不出来）——
+    #校验口径：金蝶没解析成功时格子里是空或 select
     r = cdp.js(_JS_CELL_TEXT % (json.dumps(pid), json.dumps(key), row))
     v = r.get("value") if "value" in r else r
     if not isinstance(v, dict) or "text" not in v:
@@ -1291,11 +1271,10 @@ def _cell_text(cdp, pid, key, row, tag):
 
 
 def _type_into_cell(cdp, pid, key, row, value, f7, tag):
-    #真实输入链写明细格（唯一被保存实测确认进 billModel 的通道）：
+    #真实输入链写明细格（唯一被保存确认进 billModel 的通道）：
     #双击进编辑态 → 三击全选编辑器内容 → Delete → 键入 → F7 列 Enter 触发编码解析 / 普通列 Tab 失焦提交
-    #⚠️清空必须三击不能用 Ctrl+A：双击偶发没进编辑态时（金蝶异步收尾/上一列 Enter 已退编辑态），
-    #  Ctrl+A 会把整页字段名选中（2026-11-24 GUI 实测：调出仓库后填调入仓库时全选跑到框外，
-    #  Delete 触发「内容已修改」横幅、键入落空 → 调入仓库 0/1），三击只在格子内建选区，安全（血泪结论#11）
+    #⚠️清空必须三击不能用 Ctrl+A：双击偶发没进编辑态时 Ctrl+A 会把整页字段名选中，
+    #  Delete 触发「内容已修改」横幅、键入落空；三击只在格子内建选区，安全
     xy = cdp.js(_JS_CELL_XY % (json.dumps(pid), json.dumps(key), row))
     v = xy.get("value") if "value" in xy else xy
     if not isinstance(v, dict) or "x" not in v:
@@ -1303,9 +1282,9 @@ def _type_into_cell(cdp, pid, key, row, value, f7, tag):
     cdp.dbl_click(v["x"], v["y"])
     time.sleep(0.8)
     #编辑态门：上一列批量填充后网格异步收尾，这一下双击会被吞；没进编辑态就 Ctrl+A
-    #会把整页字段名选中（2026-11-24 GUI 实测：Delete 弹「内容已修改」、键入落空、0/1）。
-    #⚠️清空仍用 Ctrl+A 不用三击：三击会把刚建立的格子编辑态点退出（同日受控实测），
-    #  三击只适用于弹窗过滤框（血泪结论#11 的原始场景）；有了这道门，Ctrl+A 只在格子编辑器内生效，安全
+    #会把整页字段名选中（Delete 弹「内容已修改」、键入落空）。
+    #⚠️清空仍用 Ctrl+A 不用三击：三击会把刚建立的格子编辑态点退出，三击只适用于弹窗过滤框；
+    #  有了这道门，Ctrl+A 只在格子编辑器内生效，安全
     for _ in range(5):
         a = cdp.js(_JS_EDIT_ACTIVE % (json.dumps(pid), json.dumps(key), str(row))).get("value") or {}
         if a.get("ok"):
@@ -1321,32 +1300,30 @@ def _type_into_cell(cdp, pid, key, row, value, f7, tag):
     time.sleep(0.2)
     if f7 and _CJK_RE.search(value):
         #F7 列填中文名称（如 电子仓/委外仓）：insertText 不触发 typeahead，必须逐字符键入
-        #让金蝶弹模糊匹配下拉，唯一命中时 Enter 直接选中（2026-11-25 实测：键入「电子仓」+Enter
-        #格子落地显示「电子仓」；此前 insertText 写法 Enter 后被判空清空）。多命中时 Enter
-        #行为未校准，用户口径是组织内名称唯一；不唯一时格子会被金蝶清空 → 校验报错，不会假成功
+        #让金蝶弹模糊匹配下拉，唯一命中时 Enter 直接选中。多命中时 Enter 行为不确定
+        #（业务前提是组织内名称唯一）；不唯一时格子会被金蝶清空 → 校验报错，不会假成功
         cdp.type_chars(value)
-        time.sleep(1.5)  #等模糊下拉过滤稳定再 Enter（实验8 用的 2s，留 1.5s 余量）
+        time.sleep(1.5)  #等模糊下拉过滤稳定再 Enter（留 1.5s 余量）
     else:
         cdp.type_text(value)
     time.sleep(0.3)
     if f7:
         cdp.key_enter2()  #F7：Enter 让金蝶解析编码/唯一模糊命中并联动带出名称/单位
     else:
-        cdp.key_tab2()    #普通列：Tab 失焦提交（实测发 UpdateValue）
+        cdp.key_tab2()    #普通列：Tab 失焦提交（金蝶会发 UpdateValue）
     time.sleep(1.2)
     return True, None
 
 
 def _verify_cell(cdp, pid, key, row, value, f7, tag):
-    #写后校验（显示层判据，实测口径）：
+    #写后校验（显示层判据）：
     #  物料列 → 名称列被金蝶带出非空才算解析成功（编码本身在名称解析前就显示，读它会假阳）
     #  其他 F7 → 格子文本非空且不是 select 占位
     #  普通列 → 文本含写入值（数量显示 3.0000000000 这类补零写法）
-    #⚠️F7 列 Enter 后金蝶发 GetLookupList2More 异步查询，查询回来才 SetItemValueByIDFromClient 提交显示
-    #  （2026-11-23 实测：读一次定生死会把"查询还没回来"误判成空，必须轮询等异步回填；仓库列比物料列慢）
+    #⚠️F7 列 Enter 后金蝶发 GetLookupList2More 异步查询，回来才 SetItemValueByIDFromClient 提交显示；
+    #  读一次就下结论会把"查询还没回来"当成空，必须轮询等异步回填（仓库列比物料列慢）
     read_key = "FMATERIALNAME" if (f7 and key == "FMATERIALID") else key
-    #⚠️普通列也要给足等待：前面逐行填完 F7 列后金蝶还在异步联动（单位/库存量刷新），
-    #  窗口太短会把"联动还没完成"误判成空（2026-11-23 端到端实测数量列全 FAIL 的根因）
+    #⚠️普通列也要给足等待：前面逐行填完 F7 列后金蝶还在异步联动（单位/库存量刷新），窗口太短会把「联动还没完成」当成空。
     deadline = time.time() + (8.0 if f7 else 6.0)
     actual = ""
     while True:
@@ -1367,8 +1344,7 @@ def _wait_js(cdp, template, arg=None, timeout=8.0, ok_key="x", abort_keys=()):
     #轮询一个返回 {x,y} 的 JS 模板直到拿到 ok_key 或超时；返回最后一个结果 dict
     #arg：已 json.dumps 好的 JS 字面量（单值或元组）；None=模板无占位符
     #abort_keys：明确的业务否定（如 noRow 过滤后真没有），命中立即返回；
-    #  ⚠️no-window/no-edit-container 这类"结构还没长出来"不能当否定 —— 弹窗是异步加载的，
-    #  点开后 1~2 秒内查会拿到 no-window，立即返回就是 2026-11-23 仓位误判的根因
+    #  ⚠️no-window/no-edit-container 这类"结构还没长出来"不能当否定 —— 弹窗是异步加载的，点开后要等一会儿才查得到。
     if arg is None:
         expr = template
     else:
@@ -1389,16 +1365,14 @@ def _wait_js(cdp, template, arg=None, timeout=8.0, ok_key="x", abort_keys=()):
 
 
 def _clear_windows(cdp, to=6.0):
-    #清场：一次关一个最上层窗（模板返回其取消按钮坐标），用 CDP 真实鼠标点击。
-    #⚠️必须 CDP 点击不能 JS .click()：金蝶窗的取消按钮绑的是真实鼠标事件，
-    #  JS 合成 click 点了窗不关（2026-11-23 实测：clicked:true 但残留窗仍在）
+    #清场：一次关一个最上层窗（模板返回其取消按钮坐标），用 CDP 真实鼠标点击
+    #⚠️必须 CDP 点击不能 JS .click()：金蝶窗的取消按钮绑的是真实鼠标事件，JS 合成 click 点了窗不关
     end = time.time() + to
     while time.time() < end:
         r = cdp.js(_JS_FLEX_CANCEL)
         v = r.get("value") if "value" in r else r
         if not isinstance(v, dict) or v.get("none"):
-            #窗清完再扫 kd-msg 顶部横幅（血泪结论#10：本函数原来对它全盲，残留横幅会挡住
-            #放大镜/网格 → 2026-11-24 GUI apply_org no-popup 全灭）。两种横幅都只点【取消】：
+            #窗清完再扫 kd-msg 顶部横幅（残留横幅会挡住放大镜/网格）。两种横幅都只点【取消】：
             #「主业务组织已改变」取消=放弃待生效的组织变更；「内容已经修改，是否保存」
             #取消=留在当前单不保存（点「是/确定」会真保存单据进 ERP，测试期绝对禁止）
             clicked = False
@@ -1408,13 +1382,13 @@ def _clear_windows(cdp, to=6.0):
                     cdp.click(b["x"], b["y"])
                     time.sleep(0.6)
                     clicked = True
-            if _dismiss_net_banner(cdp, to=0.5):  #网络横幅也顺手清（上一步提交被吞，调用方重跑即可）
+            if _dismiss_net_banner(cdp, to=0.5):  #网络横幅也顺手清（上一步提交未生效时代码会重跑）
                 clicked = True
             if clicked:
-                continue  #已点掉横幅，再扫一轮确认干净
-            return True  #没有可见窗和横幅了
+                continue
+            return True
         if v.get("noClose") or not v.get("x"):
-            return False  #有窗但找不到取消按钮 / 连接断开拿不到坐标，别再空转
+            return False  #有窗但找不到取消按钮 / 连接断开拿不到坐标，直接判失败
         cdp.click(v["x"], v["y"])
         time.sleep(0.6)
     return False
@@ -1435,7 +1409,6 @@ def _orgchange_btn(cdp, label):
 
 def _confirm_orgchange(cdp, tag, to=6.0):
     #apply_org 键入回车后金蝶弹「主业务组织已改变」横幅，不点确定值不生效且挡住后续操作
-    #（2026-11-24 复现实测：横幅挂着时放大镜 no-popup、valData 停在旧组织）。
     #点确定后金蝶把同页签重置成新单（明细/单头全清）→ 申请组织必须排在一切填写之前。
     #返回 True=已确认且草稿重新就位（调用方要重取 pid）；False=无横幅（正常）或确认后就位超时
     end = time.time() + to
@@ -1449,7 +1422,7 @@ def _confirm_orgchange(cdp, tag, to=6.0):
             return False
         time.sleep(0.5)
     if not r.get("x"):
-        return False  #没弹横幅 = 组织没变，正常路径
+        return False
     cdp.click(r["x"], r["y"])
     print(f"[{tag}] 已点主业务组织横幅「确定」（金蝶重置同页签为新单，等就位）")
     deadline = time.time() + 30.0
@@ -1465,13 +1438,10 @@ def _confirm_orgchange(cdp, tag, to=6.0):
 def _dismiss_net_banner(cdp, to=2.0):
     #网络横幅「刚刚执行的操作不能完成，请尝试以下办法…联系系统管理员」：
     #它一出现就说明上一步对服务器的提交被吞了（值停在显示层，billModel 没进），
-    #且它会挡住后续所有操作。点【确定】清掉后调用方要重跑这一步。
-    #（2026-11-25 用户 GUI 截图证实：apply_type 报成功却没生效 = 这次提交被横幅吞；
-    #  这类横幅只有 确定 一个按钮，点它不保存单据，安全）
+    #且会挡住后续所有操作。点【确定】清掉后调用方要重跑这一步（这类横幅只有 确定 一个按钮，点它不保存单据）。
     #重跑策略=「谁被吞谁重跑」：每个写动作自带回读校验，校验没过就是自己被吞了，
-    #清横幅后重跑本步即可（各动作已有的 2 轮重试循环开头都会 _clear_windows，
-    #那里已接横幅清除）。不做跨动作台账重放：重放 WebNewBill 会弃单、
-    #重放块粘贴会二次扩行，风险远大于收益（2026-11-25 对抗性审计后否决）。
+    #清横幅后重跑本步即可（各动作的 2 轮重试循环开头都会 _clear_windows，那里已接横幅清除）。
+    #不做跨动作台账重放：重放 WebNewBill 会弃单、重放块粘贴会二次扩行，风险远大于收益。
     end = time.time() + to
     while time.time() < end:
         b = _banner_btn(cdp, "确定", r"/刚刚执行|不能完成|网络状况/")
@@ -1481,13 +1451,13 @@ def _dismiss_net_banner(cdp, to=2.0):
             print("[net-banner] 检测到网络横幅，已点「确定」清场，调用方重跑这一步")
             return True
         if b.get("none") or b.get("noBtn"):
-            return False  #没横幅（正常）或横幅在但按钮找不到：别死转，交给调用方报错
+            return False  #没横幅（正常）或横幅在但按钮找不到：不空转，交给调用方报错
         time.sleep(0.4)
     return False
 
 
 def _fill_flex(cdp, pid, key, row, value, tag):
-    #仓位弹性域：双击格子→维度图标→维度弹窗。填值两条路（2026-11-23 实测）：
+    #仓位弹性域：双击格子→维度图标→维度弹窗。填值两条路：
     #  路A（主路）：弹窗内 F7 输入框【逐字符键入】→ 金蝶「全模糊匹配」下拉 → 点命中行 → 弹窗确定。
     #    这是查值集分页外编码（如120）的唯一通道——值集列表窗只加载首页15项，120 不在其中。
     #  路B（兜底）：F7放大镜 → 值集列表窗 → dataSource 匹配选行 → 返回 → 弹窗确定。
@@ -1517,29 +1487,24 @@ def _fill_flex(cdp, pid, key, row, value, tag):
     #前置清场：残留的维度/列表窗会挡住后续，先全关
     _clear_windows(cdp)
 
-    #① 双击进编辑态
     xy = step(_JS_CELL_XY, (json.dumps(pid), json.dumps(key), str(row)))
     if not xy.get("x"):
         return False, f"定位格子失败: {xy}"
     cdp.dbl_click(xy["x"], xy["y"])
     time.sleep(1.0)
 
-    #② 维度图标
     icon = step(_JS_FLEX_ICON, (json.dumps(pid), json.dumps(key), str(row)), to=6.0,
                 abort=("no-flex-icon", "no-col", "row-out-of-range", "no-grid"))
     if not icon.get("x"):
         return False, f"维度图标不可用: {icon}"
     cdp.click(icon["x"], icon["y"])
 
-    #③ 等维度弹窗输入框出现
     inp = step(_JS_FLEX_INPUT, None, to=10.0)
     if not inp.get("x"):
         _clear_windows(cdp)
         return False, f"维度弹窗/输入框没出现: {inp}"
 
-    #④ 路A：逐字符键入 → 全模糊匹配下拉 → 点命中行 → 确定
     #⚠️先清空输入框：格子已有值时（重跑同一单）直接键入会追加在旧值后面，模糊匹配必失败
-    #（2026-11-23 回归实测：仓位格已填 120 后再填 999999，不清空则路A整体空转）
     #清空用三击+Delete：金蝶 F7 框里 Ctrl+A 不生效，只有三击建立选区才删得干净
     cdp.triple_click(inp["x"], inp["y"])
     time.sleep(0.3)
@@ -1555,19 +1520,18 @@ def _fill_flex(cdp, pid, key, row, value, tag):
             hit = {}
         if hit.get("x") or hit.get("noHit"):
             break  #命中 / 下拉出来了但没这个值 —— 确定结果，不再空等
-        time.sleep(0.6)  #noPop：下拉还没弹出来，继续等
+        time.sleep(0.6)
     if hit.get("x"):
         cdp.click(hit["x"], hit["y"])
         time.sleep(1.5)
         if confirm_flex():
             actual, err = read_cell()
             if not err and actual and "select" not in actual:
-                return True, actual  #路A成功
-        #路A点了行却没提交成功（罕见）：清残留落到路B
+                return True, actual
+        #路A点了行却没提交成功：清残留落到路B
     elif hit.get("noHit"):
         #下拉弹出来了但没这个值 = 值集确认没有，不必再开值集列表（它只是首页15项的子集）。
-        #⚠️先 Escape 关掉模糊匹配浮层：它盖着维度弹窗的取消按钮，直接清场会把点击落到浮层上，
-        #  浮层关了窗还在（2026-11-23 回归实测残留 1 窗）
+        #⚠️先 Escape 关掉模糊匹配浮层：它盖着维度弹窗的取消按钮，直接清场会把点击落到浮层上，浮层关了窗还在。
         cdp.key("Escape", "Escape", 27)
         time.sleep(0.5)
         _clear_windows(cdp)
@@ -1575,8 +1539,8 @@ def _fill_flex(cdp, pid, key, row, value, tag):
                        f"——检查 Excel 仓位填的是编码还是名称")
 
     #⑤ 路B（仅当路A 下拉根本没弹出时才试）：放大镜 → 值集列表 → dataSource 匹配 → 返回 → 确定
-    #先 Escape 关掉可能挂着的模糊匹配浮层（它会盖住放大镜，导致点了不开列表窗，
-    #2026-11-23 回归实测 no-grid），再三击+Delete 清空输入框避免脏值干扰（Ctrl+A 在金蝶 F7 框不生效）
+    #先 Escape 关掉可能挂着的模糊匹配浮层（它会盖住放大镜，导致点了不开列表窗），
+    #再三击+Delete 清空输入框避免脏值干扰（Ctrl+A 在金蝶 F7 框不生效）
     cdp.key("Escape", "Escape", 27)
     time.sleep(0.4)
     cdp.triple_click(inp["x"], inp["y"])
@@ -1682,7 +1646,6 @@ class WebNavigate(CustomAction):
             else:
                 print(f"[WebNavigate] 「{text}」不可见，可能已在列表页，直接找新增")
 
-            #等列表工具栏「新增」出现
             deadline = time.time() + min(timeout_s, 30.0)
             add = {}
             while time.time() < deadline:
@@ -1698,7 +1661,6 @@ class WebNavigate(CustomAction):
 
             #等草稿页 + wait_label 字段出现。
             #⚠️必须带补点循环：列表页刚点开时「新增」可能还在异步渲染，第一下会点到旧 DOM 空位
-            #（2026-11-24 GUI 实测：点完死等满 60s 无动静，重试补点 4s 就就位）。
             #每 8s 没草稿就重新定位「新增」再点一次（坐标要重取，列表可能已重排）
             deadline = time.time() + timeout_s
             next_click = time.time() + 8.0
@@ -1737,14 +1699,14 @@ class WebNewBill(CustomAction):
         if param is None:
             return False
         #最后一张单不开新单：留在当前单（提交链路下当前单已进 ERP）或直接收尾，
-        #省得每张跑完多开一张空白新增单（2026-11-25 用户口径；单张 Excel 同样走这条）
+        #省得每张跑完多开一张空白新增单（单张 Excel 同样走这条）
         try:
             import transfer_actions
             if transfer_actions.is_last_order():
                 print("[WebNewBill] 已是最后一张 → 不点新增，留在当前单收尾")
                 return True
         except Exception:
-            pass  #队列读不到就按老行为开新单，保守不崩
+            pass  #读不到队列就按常规开新单，不报错
         wait_label = str(param.get("wait_label", "") or "").strip()
         timeout_s = float(param.get("timeout_ms", 60000) or 60000) / 1000.0
         header_key = _LABEL_TO_HEADER.get(wait_label)
@@ -1773,7 +1735,7 @@ class WebNewBill(CustomAction):
                 if no.get("x"):
                     break
                 if no.get("none") and time.time() > deadline - 6.0:
-                    break  #再等 6 秒仍无横幅 = 当前单是空的，金蝶直接开新单
+                    break
             if no.get("x"):
                 cdp.click(no["x"], no["y"])
                 print("[WebNewBill] 已点横幅「否」（放弃当前未保存单）")
@@ -1781,7 +1743,7 @@ class WebNewBill(CustomAction):
                 print("[WebNewBill] 无「内容已修改」横幅（当前单未填过），视为已直接开新单")
 
             #③ 等重置完成：横幅消失 + 唯一草稿 + wait_label 字段可见
-            #（实测：点否后 pid 复用不变，金蝶把同一页签重置成新单，申请人等字段清空）
+            #（点否后 pid 复用不变，金蝶把同一页签重置成新单，申请人等字段清空）
             deadline = time.time() + timeout_s
             last = ""
             while time.time() < deadline:
@@ -1981,8 +1943,7 @@ class WebSetHeaderField(CustomAction):
 
             if field in _HEADER_TEXT_FIELDS:
                 key, _kind = _HEADER_TEXT_FIELDS[field]
-                #2 轮重试：网络横幅会吞掉 Tab 失焦提交（回读没过就是自己被吞了），
-                #清横幅后重跑本步即可（2026-11-25 用户口径：自动点确定 + 重跑未完成的一步）
+                #2 轮重试：网络横幅会吞掉 Tab 失焦提交（回读没过就是自己被吞了），清横幅后重跑本步
                 for rnd in range(2):
                     if self._set_text_once(cdp, pid, key, field, value):
                         return True
@@ -2013,13 +1974,13 @@ class WebSetHeaderField(CustomAction):
             cdp.close()
 
     def _set_text_once(self, cdp, pid, key, field, value):
-        #文本单头字段真实输入链写一次：聚焦→键入→Tab 失焦提交→回读校验（原逻辑原样搬出）
+        #文本单头字段真实输入链写一次：聚焦→键入→Tab 失焦提交→回读校验
         f = cdp.js(_JS_FOCUS_INPUT % (json.dumps(pid), json.dumps(key))).get("value") or {}
         if not f.get("ok"):
             print(f"[WebSetHeaderField] {field}({key}) 聚焦失败: {f.get('err')}")
             return False
         cdp.type_text(value)
-        cdp.key_tab()  #Tab 失焦提交 —— 实测只有真实输入链会进金蝶模型
+        cdp.key_tab()  #Tab 失焦提交 —— 只有真实输入链会进金蝶模型
         time.sleep(0.4)
         back = (cdp.js(_JS_READ_INPUT % (json.dumps(pid), json.dumps(key))).get("value") or {}).get("value") or ""
         digits = lambda x: re.sub(r"\D", "", str(x))
@@ -2029,7 +1990,7 @@ class WebSetHeaderField(CustomAction):
 
     def _pick_f7(self, cdp, pid, field, key, target):
         #基础资料写值，两条路按顺序试：
-        #  路A（优先，物料列同款经验）：聚焦编辑器→清空→键入→Enter，金蝶自己精确匹配解析编码/名称
+        #  路A（优先）：聚焦编辑器→清空→键入→Enter，金蝶自己精确匹配解析编码/名称
         #  路B（兜底）：点放大镜开金蝶选择弹窗→关键字框过滤→点命中行→「返回数据」
         #判据统一用 valData（金蝶控件的已解析值 {name,number}），绝不选第一行
         def parsed_ok(cur):
@@ -2045,14 +2006,14 @@ class WebSetHeaderField(CustomAction):
         # ---- 路A：键入 + Enter ----
         f = cdp.js(_JS_FOCUS_INPUT % (json.dumps(pid), json.dumps(key))).get("value") or {}
         if f.get("ok"):
-            #清空：F7 框里 Ctrl+A 不生效（血泪结论#11），用三击建立选区再 Delete
+            #清空：F7 框里 Ctrl+A 不生效，用三击建立选区再 Delete
             cdp.triple_click(f["x"], f["y"])
             time.sleep(0.2)
             cdp.key_delete()
             time.sleep(0.2)
             if _CJK_RE.search(target):
                 #中文名称走逐字符键入→typeahead 模糊下拉→唯一命中 Enter 直接选中
-                #（2026-11-25 实测：insertText 不触发 typeahead，申请人/仓库中文名都靠这条）
+                #（insertText 不触发 typeahead，申请人/仓库中文名都靠这条）
                 cdp.type_chars(target)
                 time.sleep(1.5)  #等模糊下拉过滤稳定
             else:
@@ -2061,7 +2022,7 @@ class WebSetHeaderField(CustomAction):
             cdp.key_enter2()
             time.sleep(2.0)
             #申请组织=主业务组织：变更后金蝶弹横幅要确认，确认后同页签被重置成新单
-            #（明细全清）→ 本字段必须排在一切填写之前（2026-11-24 复现实测）
+            #（明细全清）→ 本字段必须排在一切填写之前
             if _confirm_orgchange(cdp, "WebSetHeaderField"):
                 pid2, _ = _draft(cdp, "WebSetHeaderField")
                 cur2 = cdp.js(_JS_F7_READ % (json.dumps(pid2 or pid), json.dumps(key))).get("value") or {}
@@ -2084,7 +2045,7 @@ class WebSetHeaderField(CustomAction):
         cdp.click(mag["x"], mag["y"])
         print(f"[WebSetHeaderField] {field} 已点放大镜，轮询等选择弹窗…")
 
-        #弹窗是子表单异步加载，固定 sleep 不够就误判 no-popup（2026-11-20 实测）→ 轮询最多 10s
+        #弹窗是子表单异步加载，固定 sleep 不够会误判 no-popup → 轮询最多 10s
         filt = {}
         for _ in range(10):
             time.sleep(1.0)
@@ -2161,8 +2122,8 @@ class WebPickCombo(CustomAction):
             if not pid:
                 print(f"[WebPickCombo] {err}")
                 return False
-            #⚠️下拉必须走【真实鼠标选值】：w.value()+fireChange 只改显示层，服务器提交被
-            # 网络横幅一吞 billModel 就不进（2026-11-25 复现：apply_type 报成功却没生效）。
+            #⚠️下拉必须走【真实鼠标选值】：w.value()+fireChange 只改显示层，
+            #  网络横幅一吞 billModel 就不进（报成功却没生效）。
             #点 .k-select 弹层 → 轮询目标 li → 真点 → 回读 widget.text 校验，整段重试 2 轮，
             #轮间清网络横幅（点确定）再重跑，超出两轮才报错停下。
             ok = False
@@ -2187,7 +2148,7 @@ class WebPickCombo(CustomAction):
 
     def _pick_combo_real(self, cdp, pid, key, target, tag):
         #真实鼠标下拉选值：点 .k-select → 轮询含 target 的可见 li → 真点 → 回读校验。
-        #返回 (ok, detail)。回读用 widget.text（显示层），血泪结论#1/#2 只认真实鼠标才进模型
+        #返回 (ok, detail)。回读用 widget.text（显示层）；只有真实鼠标操作才会进模型
         cur = cdp.js(_JS_COMBO_READ % (json.dumps(pid), json.dumps(key))).get("value") or {}
         if cur.get("text", "").strip() == target:
             return True, "编码已是"
@@ -2210,7 +2171,7 @@ class WebPickCombo(CustomAction):
         cdp.click(opt["x"], opt["y"])
         time.sleep(1.5)
 
-        #选完立刻查网络横幅：真鼠标选值的服务器提交是异步的，横幅一出现就说明这次提交被吞，
+        #选完立刻查网络横幅：服务器提交是异步的，横幅一出现就说明本次提交被吞，
         #widget.text 可能已先改成目标值（假阳性），不能只信回读 → 清横幅并让外层重跑本步
         if _dismiss_net_banner(cdp, to=1.0):
             back0 = cdp.js(_JS_COMBO_READ % (json.dumps(pid), json.dumps(key))).get("value") or {}
@@ -2354,9 +2315,9 @@ class WebPatchFill(CustomAction):
                 print(f"[WebPatchFill] {err}")
                 return False
 
-            #① 源格填值前先判镜像锁定列：组织内调拨时调入组织=调出组织镜像，格子永久 disabled
-            #（2026-11-24 受控实测：source_org 铺完后 target_org 双击 21s 进不去）。硬填会双击失败、
-            #焦点残留旧编辑器 → Ctrl+A 误选整页 → 弹保存横幅 → 键入落空。金蝶自己已铺，只校验不填
+            #① 源格填值前先判镜像锁定列：组织内调拨时调入组织=调出组织镜像，格子永久 disabled。
+            #硬填会双击失败、焦点残留旧编辑器 → Ctrl+A 误选整页 → 弹保存横幅 → 键入落空。
+            #金蝶自己已铺，这里只校验不填
             dis = cdp.js(_JS_CELL_DISABLED % (json.dumps(pid), json.dumps(key), str(srow)))
             dis = dis.get("value") if "value" in dis else dis
             if isinstance(dis, dict) and dis.get("disabled"):
@@ -2377,8 +2338,7 @@ class WebPatchFill(CustomAction):
                 return False
 
             #① 源格填值：F7/普通列走真实输入链，弹性域（仓位）走维度弹窗
-            #重试一次：紧跟批量填充之后时，网格可能还在异步收尾（setBusy），
-            #第一次弹窗输入会落空（2026-11-23 端到端实测 source_location 抖动）
+            #重试一次：紧跟批量填充之后时，网格可能还在异步收尾（setBusy），第一次输入会落空。
             detail = None
             for attempt in range(2):
                 if kind == "flex":
@@ -2387,7 +2347,7 @@ class WebPatchFill(CustomAction):
                     ok, detail = _type_into_cell(cdp, pid, key, srow, value, (kind is True), "WebPatchFill")
                     if ok:
                         #⚠️_type_into_cell 只管敲键不验落地；源格必须真有值才配当批量填充的源，
-                        #  否则填充拿到空格铺 0/N（2026-11-24 source_warehouse 0/1 根因）
+                        #  否则填充拿到空格铺 0/N
                         ok, detail = _verify_cell(cdp, pid, key, srow, value, (kind is True), "WebPatchFill")
                 if ok:
                     break
@@ -2401,9 +2361,8 @@ class WebPatchFill(CustomAction):
 
             #②③④ 单击选中 → 点「批量填充」 → 轮询校验，整段连做 2 轮。
             #（金蝶按钮只认真实鼠标事件，JS .click() 无效；填充源值由服务器从 current 行该列读，
-            #  所以必须先单击让 current 落在目标列——血泪结论#15/#16）
-            #为什么整段重试：2026-11-24 GUI 实测第 2 张单前三列同序列全 7/7，第四次 target_warehouse
-            #写入 0/7 —— 抖动出在单击被吞 / current 漂移 / 填充回包慢，只重试源格填值盖不住。
+            #  所以必须先单击让 current 落在目标列）
+            #整段重试的原因：抖动可能出在单击被吞 / current 漂移 / 填充回包慢，只重试源格填值盖不住
             try:
                 import transfer_actions
                 order = transfer_actions._current_order()
@@ -2446,10 +2405,10 @@ class WebPatchFill(CustomAction):
                     continue
                 cdp.click(bf["x"], bf["y"])
 
-                #校验轮询 8s：批量填充是服务端回包，读一次定生死会把"还没回来"误判成空（血泪结论#3）
-                #判据用「≥队列行数」而非等于 DOM 行数：粘完末尾可能多一行空行（血泪结论#21）
+                #校验轮询 8s：批量填充是服务端回包，读一次就下结论会把"还没回来"当成空
+                #判据用「≥队列行数」而非等于 DOM 行数：粘完末尾可能多一行空行
                 #⚠️比对基准是【源格显示文本】而不是"非空"：金蝶组织内模式会把调入组织镜像成调出组织，
-                #  铺进去的是错值但非空，"非空计数"会假阳性报 7/7（2026-11-24 GUI 实测 target_org）
+                #  铺进去的是错值但非空，"非空计数"会假阳性报 7/7
                 src, serr = _cell_text(cdp, pid, key, srow, "WebPatchFill")
                 src = (src or "").strip()
                 comparable = bool(src) and "select" not in src
@@ -2479,7 +2438,7 @@ class WebPatchFill(CustomAction):
                     print(f"[WebPatchFill] {field} 已铺开（队列行数未知，非空 {filled} 行，DOM {len(texts)} 行）")
                     return True
                 if comparable:
-                    #源格文本对不上 = 金蝶把值改写了（镜像/外键拒绝），把现场打出来便于定位
+                    #源格文本对不上 = 金蝶把值改写了（镜像/外键拒绝），打印明细便于定位
                     print(f"[WebPatchFill] {field} 第{rnd + 1}轮铺开 {filled}/{expect}，"
                           f"源格={src!r} 各行={texts[:expect]}（与源格不一致，疑似金蝶改值）")
                 else:
@@ -2550,9 +2509,8 @@ class WebBlockPaste(CustomAction):
             if not pid:
                 print(f"[WebBlockPaste] {err}")
                 return False
-            #新草稿打开瞬间 dataSource 可能是 0 行（2026-11-24 实测：物料粘贴 {rows: 0} 直接失败，
-            #物料空 → 仓库/仓位被金蝶拒绝批量填充，连锁整单 1/7）。等初始行出现，6s 不出点一次
-            #「新增行」兜底；只补 1 行，块粘贴自动扩到 N 行（血泪结论#20，勿预补 N 行）
+            #新草稿打开瞬间 dataSource 可能是 0 行（物料空 → 仓库/仓位被金蝶拒绝批量填充，连锁整单失败）。
+            #等初始行出现，6s 不出点一次「新增行」兜底；只补 1 行，块粘贴自动扩到 N 行（勿预补 N 行）
             for _ in range(12):
                 r = cdp.js(_JS_ROW_COUNT % json.dumps(pid))
                 v = r.get("value") if "value" in r else r
@@ -2571,8 +2529,8 @@ class WebBlockPaste(CustomAction):
             if not (isinstance(xy, dict) and xy.get("x")):
                 print(f"[WebBlockPaste] 首格定位失败: {xy}")
                 return False
-            #不补行：金蝶块粘贴会自动扩行（2026-11-24 实测 1 行草稿粘 7 值 → 8 行），
-            #几百物料一次粘贴就够；若先 _ensure_rows 反而退化成几百次点「新增行」
+            #不补行：金蝶块粘贴会自动扩行（1 行草稿粘 7 值 → 8 行），
+            #几百物料一次粘贴即可；若先 _ensure_rows 反而退化成几百次点「新增行」
 
             #① 右键首格 → 点「块粘贴」（菜单异步，重试两轮）
             dlg = {}
@@ -2613,8 +2571,7 @@ class WebBlockPaste(CustomAction):
             print(f"[WebBlockPaste] {field} 已粘贴 {len(nonempty)} 行并提交，等金蝶解析…")
 
             #③ 校验：物料列看名称列被带出，其他列看整列非空非 select。
-            #⚠️判据用「文本含任一期望值」而不是「非空非 select」：F7 首行渲染成 select+编码 混排，
-            #  按非 select 判会把已填上的首行误判成空（2026-11-24 实测）
+            #⚠️判据用「文本含任一期望值」而不是「非空非 select」：F7 首行渲染成 select+编码 混排，按非 select 判会把已填上的首行当成空。
             read_key = "FMATERIALNAME" if key == "FMATERIALID" else key
             deadline = time.time() + 15.0
             texts = []
@@ -2638,7 +2595,7 @@ class WebBlockPaste(CustomAction):
 
 def _toolbar_step(cdp, pid, label, tag, probe_wait=2.0):
     #顶栏按钮一步走：点按钮 → 有确认弹窗就点确定 → 等 probe_wait 秒读落地信号。
-    #⚠️本函数不做任何"测试性"点击：调用它的节点默认不在跑单链路里，真单校准才启用
+    #⚠️本函数不做任何"测试性"点击：调用它的节点默认不在跑单链路里
     btn = cdp.js(_JS_TOOLBAR_BTN % json.dumps(label, ensure_ascii=False)).get("value") or {}
     if not btn.get("x"):
         return False, f"顶栏「{label}」找不到: {btn}"
@@ -2677,7 +2634,7 @@ def _submit_landed(cdp, tag, before_tab):
 
 
 def _landing_signals(cdp):
-    #提交/审核的落地信号（不赌状态文案，全打日志供首轮真单校准）：
+    #提交/审核的落地信号（不赌状态文案，全部打日志）：
     #  ①「单据编号」从占位变成真实编号 ②活动页签标题变化 ③单据状态字段文本
     num = cdp.js(_JS_LABEL_INPUT % json.dumps("单据编号", ensure_ascii=False)).get("value") or {}
     tab = cdp.js(_JS_ACTIVE_TAB).get("value") or ""
@@ -2687,7 +2644,7 @@ def _landing_signals(cdp):
     return num, tab, st
 
 
-@AgentServer.custom_action("WebSubmit")  #顶栏「提交」：真实鼠标点击 + 确认弹窗 + 落地信号记录（真单校准才启用）
+@AgentServer.custom_action("WebSubmit")  #顶栏「提交」：真实鼠标点击 + 确认弹窗 + 落地信号记录
 class WebSubmit(CustomAction):
 
     def run(
@@ -2736,7 +2693,7 @@ class WebAudit(CustomAction):
                 print(f"[WebAudit] {detail}")
                 return False
             _landing_signals(cdp)
-            #审核落地的铁证=「下推」由灰变亮（用户截图：审核前下推是灰的）；读不到就停下报错
+            #审核落地的判据=「下推」由灰变亮；读不到就停下报错
             dp = cdp.js(_JS_TOOLBAR_BTN % json.dumps("下推", ensure_ascii=False)).get("value") or {}
             if dp.get("x") and not dp.get("grey"):
                 print("[WebAudit] 审核落地：「下推」已点亮")
@@ -2766,7 +2723,7 @@ class WebPushDown(CustomAction):
                 return False
             before = cdp.js(_JS_TAB_TITLES).get("value") or []
             #先记住来源单页签的完整标题（此刻活动页签就是它），下推后按精确标题切回——
-            #不能按「调拨申请单」前缀找：会命中「...列表」或遗留空白「- 新增」（2026-11-25 实测）
+            #不能按「调拨申请单」前缀找：会命中「...列表」或遗留空白「- 新增」
             src_tab = cdp.js(_JS_ACTIVE_TAB).get("value") or ""
             btn = cdp.js(_JS_TOOLBAR_BTN % json.dumps("下推", ensure_ascii=False)).get("value") or {}
             if not btn.get("x"):
@@ -2778,8 +2735,8 @@ class WebPushDown(CustomAction):
             cdp.click(btn["x"], btn["y"])
             print("[WebPushDown] 已点顶栏「下推」，等「选择单据」弹窗…", flush=True)
 
-            #「选择单据」弹窗里转换规则/单据类型是异步加载的，早于就绪点确定=点了没生效
-            #（2026-11-25 实测：+1.2s 点确定，弹窗还开着、下推没成）。轮询到「确定」可点再点
+            #「选择单据」弹窗里转换规则/单据类型是异步加载的，早于就绪点确定=点了没生效，
+            #必须轮询到「确定」可点再点
             ok = {}
             end = time.time() + 12.0
             while time.time() < end:
@@ -2794,7 +2751,7 @@ class WebPushDown(CustomAction):
             print(f"[WebPushDown] 已点弹窗「确定」（{ok.get('text','')[:40]}）", flush=True)
 
             #下推落地=弹窗关闭 + 冒出一个新顶栏页签（目标单据，如「直接调拨单 - 新增」）。
-            #⚠️新页签判据必须等弹窗关掉后再读：弹窗内部「参数选择」tab 会被误当页签（同日实测）
+            #⚠️新页签判据必须等弹窗关掉后再读：弹窗内部「参数选择」tab 会被误当页签
             landed = False
             new = []
             end2 = time.time() + 12.0
@@ -2803,7 +2760,7 @@ class WebPushDown(CustomAction):
                 still = cdp.js(_JS_PUSH_OK_BTN).get("value") or {}
                 after = cdp.js(_JS_TAB_TITLES).get("value") or []
                 new = [t for t in after if t not in before]
-                if still.get("noPop") and new:  #弹窗已关 + 真有新页签
+                if still.get("noPop") and new:
                     landed = True
                     break
             if not landed:
@@ -2811,8 +2768,7 @@ class WebPushDown(CustomAction):
                 return False
             print(f"[WebPushDown] 下推落地：新页签 {new}", flush=True)
 
-            #下推出的目标单（如「分步式调出单 - 新增」）还要点一次「提交」整单才算完成
-            #（2026-11-25 用户口径+活体实测）。切到新页签 → 提交 → 验落地 → 再切回来源单
+            #下推出的目标单（如「分步式调出单 - 新增」）还要点一次「提交」整单才算完成。
             tgt = new[0]
             tsel = cdp.js(_JS_TAB_BY_TEXT % json.dumps(tgt, ensure_ascii=False)).get("value") or {}
             if not tsel.get("x"):
@@ -2828,8 +2784,8 @@ class WebPushDown(CustomAction):
                 print("[WebPushDown] 目标单点了提交但没读到落地信号 → 停下")
                 return False
 
-            #切回来源单页签再收工：NewBill 点的是【当前页签】顶栏「新增」，
-            #停在目标单页签上会开出错单据类型（2026-11-25 对抗性检查发现）。
+            #切回来源单页签再收工：NewBill 点的是【当前页签】顶栏「新增」
+            #停在目标单页签上会开出错单据类型。
             #⚠️目标单提交后标题会从「- 新增」变「- 修改」，所以按"提交后仍在活动位"
             #  的实时标题找来源页签，不能拿落地前的旧标题（会 not-found）
             now_tab = cdp.js(_JS_ACTIVE_TAB).get("value") or ""

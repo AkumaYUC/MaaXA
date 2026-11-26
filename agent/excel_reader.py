@@ -4,7 +4,7 @@
 #单头字段（组织/申请人这类整单只有一个值的列）由填表人写在首行，本模块原样读取、不做任何转换（不推导、不映射、不补零、不改大小写）
 #所以这份代码里不含任何公司专有数据，换一家公司只用改Excel，不用碰代码
 #
-#模板（pipeline侧 ReadTransferExcel 的 template 参数，缺省 transfer 保持旧写法可用）：
+#模板（pipeline侧 ReadTransferExcel 的 template 参数，缺省 transfer）：
 #  transfer     直接调拨单
 #  requisition  调拨申请单
 #每张单的列写在 TEMPLATES 里，一行一列：Excel表头 → 内部字段名 → 报错用中文名 → 是否单头字段 → 是否必填
@@ -36,7 +36,7 @@ TEMPLATES = {
         _c("调入仓位", "target_location", "调入仓位"),
         _c("调出库存组织", "source_org", "调出库存组织", order=True, required=True),
         _c("调入库存组织", "target_org", "调入库存组织", order=True, required=True),
-        _c("备注", "remark", "备注", order=True),  #默认为*
+        _c("备注", "remark", "备注", order=True),
     ],
     "requisition": [  #调拨申请单：组织是明细列（金蝶里每行都有，但整单填同一个值），申请组织/申请人才是单头
         _c("物料编码", "material_code", "物料编码"),
@@ -63,22 +63,22 @@ TEMPLATES = {
 class OrderItem:
     #一行物料明细（对应Excel一行）。单头字段也挂在行上，因为Excel里它们就写在某一行的单元格里，
     #整单取哪个值由模板的 order 标记决定；本模板没涉及的列留空串
-    material_code: str = ""  #物料编码
-    quantity: str = ""  #数量（如 33）
-    source_warehouse: str = ""  #调出仓库
-    source_location: str = ""  #调出仓位
-    target_warehouse: str = ""  #调入仓库
-    target_location: str = ""  #调入仓位
+    material_code: str = ""
+    quantity: str = ""
+    source_warehouse: str = ""
+    source_location: str = ""
+    target_warehouse: str = ""
+    target_location: str = ""
     source_org: str = ""  #调出组织（直接调拨单表头叫「调出库存组织」，申请单叫「调出组织」，同一个字段）
-    target_org: str = ""  #调入组织
-    remark: str = ""  #备注（直接调拨单专用，默认*）
-    apply_org: str = ""  #申请组织（申请单专用）
+    target_org: str = ""
+    remark: str = ""
+    apply_org: str = ""
     transfer_type: str = ""  #调拨类型（申请单读Excel原文，直接调拨单由组织推导）
     apply_type: str = ""  #调拨申请类型（申请单专用，组合框；留空=保留金蝶默认）
-    applicant: str = ""  #申请人（申请单专用）
-    phone: str = ""  #联系电话（申请单专用）
-    address: str = ""  #通讯地址（申请单专用）
-    contact: str = ""  #联系人（申请单专用）
+    applicant: str = ""
+    phone: str = ""
+    address: str = ""
+    contact: str = ""
     demand_date: str = ""  #需求日期（申请单专用，留空补当天）
     row_index: int = 0  #Excel原始行号，报错定位用
 
@@ -86,20 +86,20 @@ class OrderItem:
 @dataclass
 class TransferOrder:
     #一张调拨单（空行分隔出的一组连续数据行）
-    items: list  #这张单的所有物料行
-    index: int = 0  #第几张单（从1开始）
-    template: str = "transfer"  #本单来自哪套模板
+    items: list
+    index: int = 0
+    template: str = "transfer"
     source_org: str = ""  #调出组织（用户填的原文，原样透传）
     target_org: str = ""  #调入组织（用户填的原文，原样透传）
-    remark: str = ""  #单据备注，直接调拨单用，默认为*
-    apply_org: str = ""  #申请组织
-    transfer_type: str = ""  #调拨类型
-    apply_type: str = ""  #调拨申请类型（申请单专用，组合框）
-    applicant: str = ""  #申请人
-    phone: str = ""  #联系电话
-    address: str = ""  #通讯地址
-    contact: str = ""  #联系人
-    demand_date: str = ""  #需求日期
+    remark: str = ""
+    apply_org: str = ""
+    transfer_type: str = ""
+    apply_type: str = ""
+    applicant: str = ""
+    phone: str = ""
+    address: str = ""
+    contact: str = ""
+    demand_date: str = ""
 
 
 class ExcelFormatError(Exception):
@@ -148,17 +148,15 @@ def _build_order(index, items, cols, template):
         order.demand_date = _today_text()  #Excel列名写着（当天），留空就是今天
         #⚠️必须回写首行：_row_value/_order_value/_header_value_from_order 读的都是 items[0]，
         #  只设 order.demand_date 则 Web/UIA 端拿到的还是空串 → 「留空按当天」形同虚设
-        #  （2026-11-25 实测：Excel 需求日期留空 → demand_date 值为空跳过 → 提交被必填校验拦下）
         first.demand_date = order.demand_date
 
-    #必填看所有列：直接调拨单的仓库是明细列但整单一致（order=False, required=True），
-    #只遍历 order_cols 会把它漏掉 —— 旧版是直接检查 first.source_warehouse 的，别把这条校验写没了
+    #必填看所有列：直接调拨单的仓库是明细列但整单一致（order=False, required=True），只看单头列会把它漏掉。
     for c in cols:
         if c["required"] and not getattr(first, c["key"]):
             raise ExcelFormatError(f"第 {first.row_index} 行：{c['label']}为空，每张单的首行必须填")
 
     if template == "requisition" and order.transfer_type not in _TRANSFER_TYPES:
-        #调拨类型在金蝶下拉里只有「组织内调拨/跨组织调拨」两个候选（账套实测），填别的必然失败。
+        #调拨类型在金蝶下拉里只有「组织内调拨/跨组织调拨」两个候选，填别的必然失败。
         #委外发料/研发用料这类是「调拨申请类型」的选项 —— 列错位是真实单据的高频手误，
         #报错直接点名另一列，省得用户对着两个合法值猜（申请类型候选按账套配置不固定，故不枚举）
         hint = ""
@@ -188,12 +186,12 @@ def read_orders(file_path, template="transfer"):
 
     path = Path(file_path)
     if not path.exists():
-        raise ExcelFormatError(f"文件不存在: {path}")  #文件都没得读，直接报错
+        raise ExcelFormatError(f"文件不存在: {path}")
 
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)  #data_only=True：读公式的计算结果而不是公式本身
     try:
-        ws = wb.active  #取第一个工作表
-        rows = list(ws.iter_rows(values_only=True))  #一次性读出所有行
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
     finally:
         wb.close()
 
@@ -201,11 +199,11 @@ def read_orders(file_path, template="transfer"):
         raise ExcelFormatError("Excel是空的")
 
     #── 严格表头校验：标准列名必须全部找到，且不允许重复 ──
-    header = rows[0]  #第一行是表头
-    col_idx = {}  #内部字段名 → 列号
+    header = rows[0]
+    col_idx = {}
     for i, text in enumerate(header):
         name = _norm_cell(text)
-        if name in header_map:  #这一列是标准列
+        if name in header_map:
             key = header_map[name]
             if key in col_idx:
                 raise ExcelFormatError(f"表头第 {i + 1} 列「{name}」重复出现")  #同名列出现两次没法确定用哪个，报错
@@ -217,14 +215,14 @@ def read_orders(file_path, template="transfer"):
 
     #── 数据行逐行校验 + 按空行分组 ──
     orders = []
-    current = []  #当前正在攒的单据
+    current = []
 
-    for row_no, row in enumerate(rows[1:], start=2):  #从第2行开始，row_no是Excel实际行号
+    for row_no, row in enumerate(rows[1:], start=2):
         values = {key: _norm_cell(row[col_idx[key]]) for key in header_map.values()}  #按列名取值，列在Excel里的先后顺序无所谓
 
         if not any(values.values()):  #整行为空 = 单据分隔符
             if current:
-                orders.append(_build_order(len(orders) + 1, current, cols, template))  #收掉当前攒的单
+                orders.append(_build_order(len(orders) + 1, current, cols, template))
                 current = []
             continue
 

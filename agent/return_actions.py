@@ -64,7 +64,7 @@ _DEFAULT_PATTERN = r"^[A-Z]{2,8}\d{4,}$"
 #用户输入的分隔符：空白（含换行）/半角逗号/全角逗号/半角分号/全角分号/顿号
 _SEPARATOR = re.compile(r"[\s,，;；、]+")
 
-_VK_C = 0x43  #字母C的虚拟键码
+_VK_C = 0x43
 
 
 @dataclass
@@ -89,7 +89,7 @@ def _norm(text):
     if not isinstance(text, str):
         return ""
     #全角字符区(U+FF01~U+FF5E)与ASCII码相差0xFEE0，表意空格U+3000换成普通空格；
-    #OA那边实测剪贴板拿到的是全角逗号/全角括号，不归一化会出现「明明一致却判不一致」；
+    #剪贴板里可能是全角逗号/全角括号，不归一化会出现「明明一致却判不一致」；
     #转大写是因为金蝶单号本身就是大写：手输时敲成小写要能认出来是同一张，
     #否则「ab2024…」和「AB2024…」会被当成两张单各推一次 —— 那就是重复下推造重复单据
     chars = []
@@ -140,18 +140,18 @@ class ReadBillNumbers(CustomAction):
         _bills = []  #先清空：本动作是流程开头，参数就算写坏了也不能让上一轮的队列留着继续跑
         _current = -1
 
-        param = _params(argv)  #拉取参数
+        param = _params(argv)
         if param is None:
             return False
         raw = param.get("numbers", "")  #用户敲进来的原文，GUI的input型option传进来
         if not isinstance(raw, str):
             print(f"[ReadBillNumbers] numbers必须是字符串: {raw!r}")
-            return False  #参数类型不对
+            return False
 
         parts = [part for part in _SEPARATOR.split(raw) if part]
         if not parts:
             print("[ReadBillNumbers] 没给单据编码")
-            return False  #空输入，别拿空队列往下跑
+            return False
 
         seen = set()
         for part in parts:
@@ -165,7 +165,7 @@ class ReadBillNumbers(CustomAction):
         print(f"[ReadBillNumbers] 已建队列: {len(_bills)}张单据")
         for index, bill in enumerate(_bills, start=1):
             print(f"[ReadBillNumbers]   第{index}张: {bill.bill_no}")
-        return True  #队列就绪
+        return True
 
 
 @AgentServer.custom_action("NextBill")  #推进到下一张单据，没有更多单时返回False（触发on_error走收尾）
@@ -179,14 +179,14 @@ class NextBill(CustomAction):
 
         global _current
 
-        _current += 1  #指针后移一张
+        _current += 1
         if _current >= len(_bills):
             print("[NextBill] 所有单据已处理完毕")
             return False  #没有更多单了，让on_error接手（接WriteBillResult收尾）
 
         bill = _bills[_current]
         print(f"[NextBill] 当前第{_current + 1}/{len(_bills)}张单: {bill.bill_no}")
-        return True  #取到单了，继续跑这张单的流程
+        return True
 
 
 @AgentServer.custom_action("PasteBillNumber")  #当前单号 → 剪贴板 → Ctrl+A后Ctrl+V粘贴到焦点输入框
@@ -201,9 +201,9 @@ class PasteBillNumber(CustomAction):
         bill = _current_bill()
         if bill is None:
             print("[PasteBillNumber] 没有当前单据（先执行ReadBillNumbers和NextBill）")
-            return False  #队列还没就绪
+            return False
 
-        param = _params(argv)  #拉取参数
+        param = _params(argv)
         if param is None:
             return False
         select_all = param.get("select_all")  #只有显式写false才不全选，不写/写null都按默认全选走
@@ -231,9 +231,9 @@ class CaptureBillNumber(CustomAction):
         bill = _current_bill()
         if bill is None:
             print("[CaptureBillNumber] 没有当前单据（先执行ReadBillNumbers和NextBill）")
-            return False  #队列还没就绪
+            return False
 
-        param = _params(argv)  #拉取参数
+        param = _params(argv)
         if param is None:
             return False
         slot = param.get("slot", "")
@@ -261,7 +261,7 @@ class CaptureBillNumber(CustomAction):
 
         setattr(bill, slot, text)
         print(f"[CaptureBillNumber] 已记录{_SLOTS[slot]}: {text}")
-        return True  #记录成功
+        return True
 
 
 @AgentServer.custom_action("WriteBillResult")  #收尾落盘：一行一张单的结果文件（整份覆盖写）
@@ -273,7 +273,7 @@ class WriteBillResult(CustomAction):
         argv: CustomAction.RunArg,
     ) -> bool:
 
-        param = _params(argv)  #拉取参数
+        param = _params(argv)
         if param is None:
             return False
         path = param.get("path", "")  #结果文件路径，由pipeline给
@@ -282,14 +282,14 @@ class WriteBillResult(CustomAction):
             return False  #没给路径或给错了（比如直接写了个数字）
         if not _bills:
             print("[WriteBillResult] 队列是空的，没有可写的结果")
-            return False  #压根没跑过ReadBillNumbers，别写一份空文件出来
+            return False  #尚未执行 ReadBillNumbers，不生成空文件
 
         require = param.get("require") or list(_SLOTS)  #哪些号必须读到，默认两个都要
         if not isinstance(require, list) or any(not isinstance(slot, str) or slot not in _SLOTS for slot in require):
             print(f"[WriteBillResult] require只能填{list(_SLOTS)}里的值: {require!r}")
             return False  #require写坏了（不是list、元素不是字符串、或slot名字不对），不猜
 
-        lines = ["\t".join(["源单号"] + list(_SLOTS.values()))]  #首行表头
+        lines = ["\t".join(["源单号"] + list(_SLOTS.values()))]
         for bill in _bills:
             lines.append("\t".join([bill.bill_no] + [getattr(bill, slot) for slot in _SLOTS]))
 
@@ -313,7 +313,7 @@ class WriteBillResult(CustomAction):
         if missing:
             print(f"[WriteBillResult] 有{len(missing)}个号没读到，结果不完整: {missing}")
             return False  #文件照写（数据不能丢），但任务变红提醒人来看
-        return True  #收尾完成
+        return True
 
 
 @AgentServer.custom_recognition("VerifyCurrentBill")  #回读校验：焦点字段内容 == 当前单号时命中

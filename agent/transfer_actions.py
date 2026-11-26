@@ -2,7 +2,7 @@
 #pipeline侧接口约定（节点action都填Custom，custom_action填下面的动作名）：
 #  ReadTransferExcel  param: {"path": "D:/xxx/调拨单.xlsx", "template": "transfer"}  读Excel建单据队列，放流程最开头
 #                     path是单据文件路径，GUI拖拽单据时由interface.json的option传进来（调试也可直接写死）
-#                     template选Excel模板：transfer直接调拨单 / requisition调拨申请单；省略=transfer（旧管道照跑）
+#                     template选Excel模板：transfer直接调拨单 / requisition调拨申请单；省略=transfer
 #                     两套模板的表头列名不同，但解析出的字段名共用，所以下面所有粘贴动作对两种单据都通用
 #                     单据里每个要填的值（含库存组织）都由填表人写进Excel，agent原样透传、不做任何转换，
 #                     所以代码侧不含任何公司专有数据 —— 换一家公司只用改Excel，不用改代码
@@ -41,13 +41,11 @@
 #                     同一次粘贴只补粘一次：第二次进来直接返回True不再按键，所以不会和弹窗打成死循环
 #                     只复制不粘贴（method=clipboard_only，右键粘贴路径）的那次也记：右键粘的就是这份剪贴板，
 #                     补粘统一用Ctrl+V重放；粘没粘上仍由pipeline的校验节点判
-#自定义识别（节点recognition填Custom、custom_recognition填名字；和上面的动作是两个互不相干的槽）：
-#自定义识别（节点recognition填Custom、custom_recognition填名字；和上面的动作是两个互不相干的槽）：
 #  OrderRowCount      param: {"equal": 1}  当前单的物料行数等于equal时命中，否则不命中
 #                     行数直接读agent里的队列，跟界面无关，所以命中与否是瞬间确定的，
 #                     不像弹窗判据那样有"还没渲染出来就被兜底候选抢跑"的时序竞态，
 #                     可以放心和兜底候选写在同一个next列表里（本命中在前、兜底在后）
-#                     命中时返回占位框(0,0,1,1)，只配ClickKey这类不需要目标的动作，别配Click+target
+#                     命中时返回占位框(0,0,1,1)，只配 ClickKey 这类不需要目标的动作，不要配 Click+target
 #  OrderRemaining     param: 无  队列里还有没填的单据时命中（当前单之后的都算没填）
 #                     用途是防漏录：调拨申请单现在的收尾停在「字段填完」，没有提交回环，
 #                     一张Excel里有多张单时只填了第一张就会结束 —— 任务判成功、GUI 就把整份
@@ -57,13 +55,13 @@
 #                     命中返回占位框(0,0,1,1)，只配分流用
 #  OrderColumnEmpty   param: {"column": "source_locations"}  当前单该列整列为空时命中（跳过填写），有值不命中
 #                     只认首个物料那行：仓库/仓位整单一致，填表人只写在第一个物料上，其余行留空是正常填法，
-#                     所以"整列空不空"看第一行就够了 —— 看第一行以外会把"填对了"误判成"空"(踩坑清单同款误区)
+#                     所以"整列空不空"看第一行就够了 —— 看第一行以外会把"填对了"误判成"空"
 #                     column可选：source_locations调出仓位 / target_locations调入仓位（仓库同理也可用）
 #                     命中返回占位框(0,0,1,1)，配法：next=["跳过仓位节点","正常填写入口"]，本命中在前
 #  OrderFieldEmpty    param: {"field": "phone"}  当前单这个单头字段为空时命中（跳过填写），有值不命中
 #                     和 OrderColumnEmpty 是同一件事的两种粒度：那个看明细某一列，这个看单头某一个字段
-#                     field可选值与 PasteOrderField 完全一致（共用 _ORDER_FIELDS 白名单，别再列一遍）
-#                     用途：调拨申请单的联系电话/通讯地址/联系人非必填，Excel留空就别往金蝶粘空串
+#                     field可选值与 PasteOrderField 完全一致（共用 _ORDER_FIELDS 白名单，不重复列举）
+#                     用途：调拨申请单的联系电话/通讯地址/联系人非必填，Excel 留空时不往金蝶粘空串
 #                     配法：粘在这个识别上，识别 inverse:true —— 字段有值才执行粘贴，空着就往下走
 #                     命中返回占位框(0,0,1,1)，只配分流用
 #循环结构参考：读取Excel → NextOrder → 点新增 → 填单/保存/提交 → NextOrder（还有单回到填单，没有了on_error收尾）
@@ -84,7 +82,7 @@ import excel_reader
 from common import _params  #pipeline 参数解析兜底（写坏打日志返回None，不在agent进程里抛异常）
 
 #agent是独立进程，下面的模块级变量在同一进程的所有Action之间共享，用来记单据队列
-_orders = []  #解析后的单据队列
+_orders = []
 _current = -1  #当前单据下标，-1 = 还没开始取
 _last_paste = {"text": None, "label": "", "select_all": False, "replayed": False}  #最近一次由agent发出的粘贴，RePasteLast补粘用
 
@@ -110,10 +108,10 @@ _ORDER_FIELDS = ("source_org", "target_org", "remark", "transfer_type",
 
 #Ctrl+A / Ctrl+V / Ctrl+Home 发按键用的虚拟键码（_chord 用）
 _VK_CONTROL = 0x11
-_VK_A = 0x41  #字母A的虚拟键码
-_VK_V = 0x56  #字母V的虚拟键码
-_VK_HOME = 0x24  #Home键的虚拟键码
-_KEYEVENTF_KEYUP = 0x0002  #按键释放标志
+_VK_A = 0x41
+_VK_V = 0x56
+_VK_HOME = 0x24
+_KEYEVENTF_KEYUP = 0x0002
 
 #金蝶主窗口的 Win32 类名前缀（全类名形如
 #HwndWrapper[Kingdee.BOS.XPF.App.exe;;<GUID>]，GUID 每次启动重新生成，所以只比前缀）。
@@ -137,7 +135,7 @@ def _kingdee_pid():
             pid = wintypes.DWORD()
             user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
             holder.append(pid.value)
-            return False  #拿到了就停
+            return False
         return True
 
     try:
@@ -148,9 +146,9 @@ def _kingdee_pid():
 
 
 def _foreground_is_kingdee(tag):
-    #全局按键（keybd_event / SendInput）打的是**当前前台窗口**，不是我们想打的那个。
+    #全局按键（keybd_event / SendInput）打的是**当前前台窗口**，不是目标窗口。
     #后台跑时前台是用户的程序，此时发 Ctrl+V 就是"把单据内容粘进用户的邮件/编辑器"，
-    #而且金蝶那边什么都没收到 —— 属于事故级，绝不能靠"应该是前台吧"来赌。
+    #而且金蝶那边什么都没收到，结果就是把内容投递到错误窗口，所以不能假定前台就是金蝶。
     #所以发按键之前先验一次：前台窗口和金蝶主窗口同进程才算过关（金蝶自己的独立弹窗
     #同属一个进程，所以「维度数据录入」这类弹窗也能过关）。
     #不过关就拒绝发送并返回 False，让 pipeline 走 on_error —— 报错停住远好于静默打错地方。
@@ -184,7 +182,7 @@ def _current_order():
 
 def is_last_order():
     #当前是不是队列最后一张（WebNewBill 用它决定要不要开下一张：最后一张不点新增，
-    #留在当前单/直接收尾 —— 2026-11-25 用户口径；单张 Excel 也走这条，跑完不开空白单）
+    #留在当前单/直接收尾；单张 Excel 也走这条，跑完不开空白单）
     if not _orders:
         return True  #队列都没就绪，保守当作最后一张
     return _current >= len(_orders) - 1
@@ -209,7 +207,7 @@ def _set_clipboard(text, label, select_all=False, replayed=False, tag=""):
     #clipboard_only（只复制、真粘贴由pipeline右键完成）也照样记 —— 右键粘的就是这份剪贴板，
     #补粘时用Ctrl+V重放它；粘没粘上仍然由pipeline的校验节点判
     #replayed：RePasteLast 补粘时传True，把"这次粘贴已补过"的标记留住，免得它自己把自己重置成没补过
-    #返回 False = 前台不是金蝶、Ctrl+A 被拒（见 _foreground_is_kingdee），调用方别再往下发 Ctrl+V
+    #返回 False = 前台不是金蝶、Ctrl+A 被拒（见 _foreground_is_kingdee），调用方不应再发 Ctrl+V
     if select_all and not _ctrl_a(tag or "_set_clipboard"):
         return False
     pyperclip.copy(text)
@@ -230,9 +228,9 @@ class PasteText(CustomAction):
         if not text:
             return False
         if not _set_clipboard(text, "PasteText", select_all=True):  #搜索框可能有残留文字，先全选覆盖
-            return False  #前台不是金蝶，Ctrl+A 已被拒绝，别再往下发
+            return False  #前台不是金蝶，Ctrl+A 已被拒绝，不再发 Ctrl+V
         if not _ctrl_v("PasteText"):
-            return False  #同上：Ctrl+V 没发出去，让 pipeline 走 on_error，别假成功
+            return False  #同上：Ctrl+V 没发出去，让 pipeline 走 on_error，不当作成功
         return True
 
 
@@ -248,24 +246,24 @@ class PasteOrderField(CustomAction):
         order = _current_order()
         if order is None:
             print("[PasteOrderField] 没有当前单据（先执行ReadTransferExcel和NextOrder）")
-            return False  #队列还没就绪
+            return False
 
-        param = _params(argv)  #拉取参数
+        param = _params(argv)
         if param is None:
             return False
         field = param.get("field", "")
         if field not in _ORDER_FIELDS:
             print(f"[PasteOrderField] 未知field: {field!r}，可选: {list(_ORDER_FIELDS)}")
-            return False  #field拼错了
+            return False
 
-        value = getattr(order, field)  #取当前单这一字段的值
+        value = getattr(order, field)
         if not _set_clipboard(value, f"PasteOrderField:{field}",  #输入框默认有文字时先全选，粘贴直接覆盖
                               select_all=bool(param.get("select_all")), tag="PasteOrderField"):
             return False  #前台不是金蝶，Ctrl+A 已被拒绝
         if not _ctrl_v("PasteOrderField"):
             return False  #Ctrl+V 没发出去，让 pipeline 走 on_error
         print(f"[PasteOrderField] 已粘贴{field}: {value!r}")
-        return True  #粘贴成功
+        return True
 
 
 def _chord(key, settle=0.1, tag=""):
@@ -276,13 +274,13 @@ def _chord(key, settle=0.1, tag=""):
     if not _foreground_is_kingdee(tag or "_chord"):
         return False  #一个键都没发出去，Ctrl 也不会被按住，不存在半途状态
     user32 = ctypes.windll.user32
-    user32.keybd_event(_VK_CONTROL, 0, 0, 0)  #按下Ctrl
-    user32.keybd_event(key, 0, 0, 0)  #按下功能键
+    user32.keybd_event(_VK_CONTROL, 0, 0, 0)
+    user32.keybd_event(key, 0, 0, 0)
     time.sleep(0.05)
-    user32.keybd_event(key, 0, _KEYEVENTF_KEYUP, 0)  #松开功能键
-    user32.keybd_event(_VK_CONTROL, 0, _KEYEVENTF_KEYUP, 0)  #松开Ctrl
+    user32.keybd_event(key, 0, _KEYEVENTF_KEYUP, 0)
+    user32.keybd_event(_VK_CONTROL, 0, _KEYEVENTF_KEYUP, 0)
     if settle:
-        time.sleep(settle)  #给金蝶一点响应时间
+        time.sleep(settle)
     return True
 
 
@@ -303,13 +301,10 @@ def _ctrl_home(tag=""):
 
 def _activate_window(title):
     #按标题把窗口拉到前台。框架每次ScreenDC抓图都会ensure foreground把金蝶主窗口拉回前台，
-    #「维度数据录入」这类独立顶层弹窗的焦点会被顺手抢走，所以发按键前必须自己抢回来。
+    #「维度数据录入」这类独立顶层弹窗会抢走焦点，所以发按键前必须自己抢回来。
     #置顶必须和发按键在同一个动作里完成，中间插任何pipeline节点都会再抓一次图、焦点又丢。
-    #全程不碰Alt：Alt单击会让金蝶进菜单加速键模式，紧跟的Enter就被当成「激活菜单项」——
-    #实测会弹出一个带「关闭」按钮的窗口，而目标弹窗根本没关（踩坑清单#26）。
+    #全程不碰Alt：Alt单击会让金蝶进菜单加速键模式，紧跟的Enter会被当成「激活菜单项」，目标弹窗反而关不掉。
     #所以已经在前台就什么都不做，需要切换时借目标线程的输入队列绕前台锁。
-    #（原先这里另有一份 _focus_window 按Alt绕锁、专给粘贴路径用，已删——
-    #  它连「已经前台」都不判断，白按一次Alt，正是上面这条原则要防的事）
     user32 = ctypes.windll.user32
     hwnd = user32.FindWindowW(None, title)  #按窗口标题精确找，找不到返回0
     if not hwnd:
@@ -317,14 +312,14 @@ def _activate_window(title):
     if user32.GetForegroundWindow() == hwnd:
         return True  #已经是前台窗口，多余的置顶动作只会引入副作用
 
-    target_tid = user32.GetWindowThreadProcessId(hwnd, None)  #弹窗所属的线程
+    target_tid = user32.GetWindowThreadProcessId(hwnd, None)
     our_tid = ctypes.windll.kernel32.GetCurrentThreadId()
     user32.AttachThreadInput(our_tid, target_tid, True)  #挂到目标线程的输入队列上，SetForegroundWindow才不会被拒
     user32.BringWindowToTop(hwnd)
     ok = user32.SetForegroundWindow(hwnd)
     user32.AttachThreadInput(our_tid, target_tid, False)  #用完立刻解绑，挂着不放会连带卡住输入
-    time.sleep(0.1)  #给窗口切换一点时间
-    return bool(ok)  #激活成功与否
+    time.sleep(0.1)
+    return bool(ok)
 
 
 @AgentServer.custom_action("ReadTransferExcel")  #读取调拨单Excel，解析成单据队列
@@ -338,13 +333,13 @@ class ReadTransferExcel(CustomAction):
 
         global _orders, _current
 
-        param = _params(argv)  #拉取参数
+        param = _params(argv)
         if param is None:
             return False
         path = param.get("path", "")  #单据文件路径，GUI拖拽单据时由interface.json的option传进来
         if not path:
             print("[ReadTransferExcel] 没给path，不知道该读哪个文件")
-            return False  #没给文件路径
+            return False
         template = param.get("template", "transfer")  #Excel模板，两套单据的表头列名不同
 
         try:
@@ -359,7 +354,7 @@ class ReadTransferExcel(CustomAction):
         _current = -1  #重置队列，第一张单由NextOrder来取
         total_rows = sum(len(o.items) for o in _orders)
         print(f"[ReadTransferExcel] 解析成功: {len(_orders)}张单据 / 共{total_rows}行物料")
-        return True  #读取成功
+        return True
 
 
 @AgentServer.custom_action("NextOrder")  #推进到下一张单据，没有更多单时返回False（触发on_error走收尾）
@@ -373,14 +368,14 @@ class NextOrder(CustomAction):
 
         global _current
 
-        _current += 1  #指针后移一张
+        _current += 1
         if _current >= len(_orders):
             print("[NextOrder] 所有单据已处理完毕")
             return False  #没有更多单了，让on_error接手（比如接结束流程的节点）
 
         order = _orders[_current]
         print(f"[NextOrder] 当前第{order.index}张单，{len(order.items)}行物料")
-        return True  #取到单了，继续填单流程
+        return True
 
 
 @AgentServer.custom_action("PasteOrderColumn")  #当前单指定列 → 多行文本 → 剪贴板 → Ctrl+V粘贴到焦点单元格
@@ -395,19 +390,19 @@ class PasteOrderColumn(CustomAction):
         order = _current_order()
         if order is None:
             print("[PasteOrderColumn] 没有当前单据（先执行ReadTransferExcel和NextOrder）")
-            return False  #队列还没就绪
+            return False
 
         param = _params(argv)
         if param is None:
             return False
-        column = param.get("column", "")  #拉取列名参数
+        column = param.get("column", "")
         lines, field = _column_lines(order, column, first_only=bool(param.get("first_only")))
         if lines is None:
             print(f"[PasteOrderColumn] 未知column: {column!r}，可选: {list(_COLUMN_FIELDS)}")
-            return False  #column拼错了
+            return False
         if not any(lines):  #整列为空（first_only时只看第一个物料那行），跳过粘贴
             print(f"[PasteOrderColumn] {column}整列为空，跳过粘贴")
-            return True  #此列无数据，无需粘贴
+            return True
         method = param.get("method", "ctrl_v")
         #用CRLF拼接，和Excel复制出来的格式一致（金蝶块粘贴只认CRLF切行）
         _set_clipboard("\r\n".join(lines), f"PasteOrderColumn:{column}")
@@ -423,7 +418,7 @@ class PasteOrderColumn(CustomAction):
         if not _ctrl_v("PasteOrderColumn"):
             return False  #前台不是金蝶，Ctrl+V 被拒；剪贴板已写好但没粘，让 pipeline 走 on_error
         print(f"[PasteOrderColumn] 已粘贴{column}: {len(lines)}行")
-        return True  #粘贴成功
+        return True
 
 
 @AgentServer.custom_action("RePasteLast")  #弹窗吃掉粘贴之后，把最近一次粘贴原样补粘一次
@@ -446,7 +441,7 @@ class RePasteLast(CustomAction):
                               tag="RePasteLast"):
             return False  #前台不是金蝶，Ctrl+A 已被拒绝
         if not _ctrl_v("RePasteLast"):
-            return False  #同上
+            return False
         print(f"[RePasteLast] 已补粘 {_last_paste['label']}")
         return True  #按键已发出，粘没粘上交给pipeline的校验节点判
 
@@ -498,9 +493,9 @@ class PopupKeys(CustomAction):
         user32 = ctypes.windll.user32
         key_delay = param.get("key_delay", 150)  #每个按键之后等待的毫秒数
         for vk in keys:
-            user32.keybd_event(vk, 0, 0, 0)  #按下
+            user32.keybd_event(vk, 0, 0, 0)
             time.sleep(0.05)
-            user32.keybd_event(vk, 0, _KEYEVENTF_KEYUP, 0)  #松开
+            user32.keybd_event(vk, 0, _KEYEVENTF_KEYUP, 0)
             time.sleep(key_delay / 1000)  #给金蝶响应时间，也把连续的两个键隔开
         print(f"[PopupKeys] 已向「{title}」发送按键: {keys}，间隔{key_delay}ms")
         return True  #按键已发出，弹窗有没有关掉交给pipeline的校验节点判断
@@ -518,15 +513,15 @@ class OrderRowCount(CustomRecognition):
         order = _current_order()
         if order is None:
             print("[OrderRowCount] 没有当前单据（先执行ReadTransferExcel和NextOrder）")
-            return None  #队列还没就绪，不命中
+            return None
 
         param = _params(argv, "custom_recognition_param")
         if param is None:
-            return None  #参数不合法，不命中
+            return None
         want = param.get("equal")
         if want is None:
             print(f"[OrderRowCount] 缺少equal参数: {param!r}")
-            return None  #参数不全，不命中
+            return None
 
         rows = len(order.items)
         if rows != want:
@@ -549,11 +544,11 @@ class OrderColumnEmpty(CustomRecognition):
         order = _current_order()
         if order is None:
             print("[OrderColumnEmpty] 没有当前单据（先执行ReadTransferExcel和NextOrder）")
-            return None  #队列还没就绪，不命中
+            return None
 
         param = _params(argv, "custom_recognition_param")
         if param is None:
-            return None  #参数不合法，不命中
+            return None
         column = param.get("column", "")
         lines, _ = _column_lines(order, column)  #只认首个物料那行，整列空不空就看它
         if lines is None:
@@ -588,7 +583,7 @@ class OrderRemaining(CustomRecognition):
 
         print(f"[OrderRemaining] 还剩{left}张单没填（当前第{_current + 1}张）："
               f"本任务没有提交回环，就此结束会被整份Excel归档，剩下的单等于漏录")
-        return CustomRecognition.AnalyzeResult(box=(0, 0, 1, 1), detail={"remaining": left})  #还有单，命中
+        return CustomRecognition.AnalyzeResult(box=(0, 0, 1, 1), detail={"remaining": left})
 
 
 @AgentServer.custom_recognition("OrderFieldEmpty")  #按当前单某个单头字段是否为空分流（空 → 跳过填写）
@@ -603,11 +598,11 @@ class OrderFieldEmpty(CustomRecognition):
         order = _current_order()
         if order is None:
             print("[OrderFieldEmpty] 没有当前单据（先执行ReadTransferExcel和NextOrder）")
-            return None  #队列还没就绪，不命中
+            return None
 
         param = _params(argv, "custom_recognition_param")
         if param is None:
-            return None  #参数不合法，不命中
+            return None
         field = param.get("field", "")
         if field not in _ORDER_FIELDS:
             print(f"[OrderFieldEmpty] 未知field: {field!r}，可选: {list(_ORDER_FIELDS)}")

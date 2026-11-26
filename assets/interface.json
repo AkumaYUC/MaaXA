@@ -1,8 +1,6 @@
 {
-    // 本文件主要定义了通用 UI 的行为和显示内容
-    // 可参考文档和示例添加更多您需要的功能
-    // 文档：https://maafw.xyz/docs/3.3-ProjectInterfaceV2
-    // 示例：https://github.com/MaaXYZ/MaaFramework/blob/main/sample/interface.json
+    // 项目接口定义：声明控制器、资源、任务与运行时选项。
+    // 协议文档：https://maafw.xyz/docs/3.3-ProjectInterfaceV2
     "interface_version": 2,
     "name": "MaaXA",
     "description": "金蝶云自动化办公助手：Excel 调拨单自动录入金蝶云星空。",
@@ -43,11 +41,9 @@
             "win32": {
                 "class_regex": ".*",
                 "window_regex": "金蝶|云星空|Kingdee.BOS.XPF",
-                // 截图及控制方式，请根据项目实际情况修改
-                // 文档: https://maafw.xyz/docs/2.4-ControlMethods
-                "screencap": "FramePool", // 截图方式（原ScreenDC）
-                "mouse": "Seize", // 鼠标控制方式(原：PostMessageWithCursorPos)
-                "keyboard": "PostMessage" // 键盘控制方式（原：Seize）
+                "screencap": "FramePool",
+                "mouse": "Seize",
+                "keyboard": "PostMessage"
             }
         }
     ],
@@ -66,16 +62,10 @@
         }
     ],
 
-    // 2026-11-24 用户口径：不自动拉起【金蝶桌面客户端】（原 start_kingdee.ps1 pretask 已删，
-    // 要自启请在 GUI 设置→启动设置→应用路径 自行配置）。
-    // 下面这条只拉起【专用调试 Edge】（独立 profile + CDP 端口，网页端自动化的命脉；
-    // 用户手开的普通 Edge 没有调试端口，CDP 连不上）。脚本幂等：端口已活秒退，不重复开窗。
-    // controller 过滤 = 仅选中「网页端」控制器时执行（PI v2.8.1）；单对象写法（2.14 数组会被静默跳过）
-    // ⚠️MFAAvalonia 的 pretask 实际 CWD 不是 interface.json 所在目录（11-25 实测：写
-    //   agent/start_web.ps1 报 exited with code -196608=文件找不到；桌面端 ../../agent/ 一直是通的）
-    //   → 改用 -Command 在三个候选相对位置里探测脚本，与启动目录无关。
-    // 「连接」按钮和「启动任务」都会跑 pretask（11-23 日志 src=UI op=RefreshDevices 实证）
-    //   → 误关 Edge 后点一下「连接」就自动重开，这就是用户要的"打开 web 端"入口（11-25 拍板）。
+    // 只拉起【专用调试 Edge】（独立 profile + CDP 端口）：网页端自动化依赖该调试端口，
+    // 用户手开的普通 Edge 没有调试端口，CDP 连不上。脚本幂等，端口已活则跳过。
+    // controller 过滤 = 仅选中「网页端」控制器时执行。
+    // pretask 在「连接」和「启动任务」时都会执行，因此误关 Edge 后可从此处重开。
     "pretask": {
         "name": "启动网页Edge",
         "label": "启动网页Edge",

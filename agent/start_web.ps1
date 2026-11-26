@@ -5,13 +5,12 @@
     [int]$WaitSeconds = 60
 )
 
-#拉起带 CDP 调试端口的 Edge 实例（网页端后台填写的前置，风格对齐 start_kingdee.ps1）
-#  独立 profile（登录态持久化在盘上，首次人工登录一次，之后长期复用）
-#  幂等：端口已有响应就直接退出；agent 侧 web_actions.py 直连这个端口，不碰 MAA 控制器
-#  端口活着但 K3Cloud 页签被关 → 用 CDP 补开一个（窗口标题变了 Win32 控制器就找不到窗口）
-#  四个 disable-* 参数：禁止 Chromium 对后台/遮挡窗口降频渲染与定时器 —— 后台自动化的前提
-#  其中 CalculateNativeWinOcclusion 专治实时视图黑屏：Edge 被判"被遮挡"就停止产帧，
-#  MFAAvalonia FramePool 捕获随之黑屏（2026-11-24 用户实测：点一下 Edge 再切回 GUI 就黑）
+#拉起带 CDP 调试端口的 Edge 实例，作为网页端后台填写的前置。
+#  独立 profile：登录态持久化在盘上，首次人工登录一次即可长期复用。
+#  幂等：端口已有响应就直接退出；agent 侧 web_actions.py 直连该端口，不经过 MAA 控制器。
+#  端口活着但 K3Cloud 页签被关时补开一个，保证控制器始终能按窗口标题找到目标。
+#  四个 disable-* 参数禁止 Chromium 对后台窗口降频渲染与定时器，是后台自动化的前提；
+#  其中 CalculateNativeWinOcclusion 用于避免 Edge 被判为被遮挡后停止产帧导致截图黑屏。
 if ([string]::IsNullOrWhiteSpace($ProfileDir)) {
     $ProfileDir = Join-Path $env:LOCALAPPDATA 'MaaXA\web-profile'
 }
@@ -35,7 +34,7 @@ function Get-K3CloudTab {
 }
 
 function Ensure-K3CloudTab {
-    #已有 K3Cloud 页签 → True；没有就 PUT /json/new 补开一个并等它挂上
+    #确保存在 K3Cloud 页签：没有则通过 CDP 补开并等待其就绪。
     if ((Get-K3CloudTab).Count -gt 0) { return $true }
     try {
         $enc = [uri]::EscapeDataString($Url)

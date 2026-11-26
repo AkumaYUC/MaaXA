@@ -14,7 +14,7 @@ from maa.agent.agent_server import AgentServer
 from maa.context import Context
 from maa.custom_action import CustomAction
 
-_POLL_MS = 500  #每轮动作后的等待窗口内，截图识别的间隔
+_POLL_MS = 500
 _INNER_NODE = "__RepeatUntilActionInner"  #MaaEnd使用的临时动作节点名
 _DEFAULT_REPEAT = 3
 _DEFAULT_INTERVAL = 3000
@@ -23,15 +23,14 @@ _DEFAULT_INTERVAL = 3000
 def _params(argv, attr="custom_action_param", tag="agent"):
     #把 pipeline 传来的 JSON 参数解析成 dict。参数是人手写的，写坏了在这里兜住：
     #打日志 + 返回 None，让调用方返回 False / 不命中 走 on_error，不要在 agent 进程里抛异常。
-    #三个模块（common / my_action / transfer_actions）共用这一份，别再各写各的 json.loads
+    #三个模块（common / my_action / transfer_actions）共用这一份
     raw = getattr(argv, attr, None)
     #节点里不写参数时，框架传下来的既不是 None 也不是 "{}"，而是字符串 "null"。
     #它是个 truthy 字符串，兜不进默认值，json.loads 完变成 None，就会被下面判成"参数写坏"，
-    #于是所有故意不写参数的识别节点全部静默不命中（ErrorPopupOpen 第一版就是这么废的）。
+    #于是所有故意不写参数的识别节点全部静默不命中。
     if raw is None or (isinstance(raw, str) and raw.strip() in ("", "null")):
         raw = "{}"
     #GUI（MFAAvalonia）会把参数**反序列化成对象**再传下来，到 agent 侧已经是 dict 而不是 JSON 字符串。
-    #json.loads(dict) 抛 TypeError → 判成"参数写坏"，于是所有带参数的动作在 GUI 里全灭（2026-11-16 实测）。
     #dict 直接放行；其余类型仍按原样走 JSON 解析兜底。
     if isinstance(raw, dict):
         return raw
@@ -194,7 +193,7 @@ class RepeatUntilFoundAction(CustomAction):
 
         parsed = _parse(argv, until_found=True)
         if parsed is None:
-            return False  #参数不合法
+            return False
         action, waits, repeat, interval = parsed
         return _run_loop(context, argv.box, action, waits, repeat, interval, True)
 
@@ -210,6 +209,6 @@ class RepeatUntilNotFoundAction(CustomAction):
 
         parsed = _parse(argv, until_found=False)
         if parsed is None:
-            return False  #参数不合法
+            return False
         action, waits, repeat, interval = parsed
         return _run_loop(context, argv.box, action, waits, repeat, interval, False)

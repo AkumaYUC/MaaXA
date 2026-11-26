@@ -20,21 +20,20 @@
 #                     move_ms/hold_ms/settle_ms：可选，默认 120/80/150（毫秒），写错就用默认值
 #                     存在理由：maa 的 Seize 输入法在 touch_down/touch_up 里各把主窗拉一次前台，
 #                     而金蝶的弹窗是独立顶层窗 —— 弹窗被推成「非前台」后，WPF 会把这一次点击当成
-#                     「激活点击」吃掉，「确定」按钮连点 64 次毫无反应就是这么来的（已实测定案）
+#                     「激活点击」吃掉，这次点击就完全无效
 #  返回False的三种情形：①找不到窗口（没开/标题变了）②点位最上层不是目标窗口（有覆盖层遮挡，
-#  点了也是白点、还可能点到别的窗口上）③SendInput 没发出去 —— 都是当场报，不拖到识别超时
+#  点了也无效、还可能点到别的窗口上）③SendInput 没发出去 —— 都是当场报错，不拖到识别超时
 #
 #自定义识别（节点recognition填Custom、custom_recognition填下面的识别名；和动作是两个互不相干的槽）
 #  ErrorPopupOpen     param: 可省 ；{"title": "错误提示", "class_part": "Kingdee.BOS.XPF.App.exe"} 可覆盖
-#                     金蝶的错误弹窗（粘贴异常就是它）还挂着时命中，关了就命中不了
-#                     判据走 Win32 窗口枚举、不看像素：模板匹配会被 DPI/缩放差异打死
-#                     （粘贴异常.png 实测 0.607921 < 阈值 0.70，6 次尝试 0 命中，根因见知识库改动记忆 2026-11-05），
-#                     小字 OCR 同样不可靠（「粘贴异常」现场只有约 42x12 像素，踩坑清单 #32）
+#                     金蝶错误弹窗（含粘贴异常）仍存在时命中，关闭后不再命中
+#                     判据走 Win32 窗口枚举、不看像素：模板匹配会被 DPI/缩放差异误判
+#                     小字 OCR 同样不可靠
 #                     title 要和弹窗标题栏文字精确一致（金蝶所有错误弹窗共用「错误提示」这个标题，
 #                     所以本识别不区分正文写的是粘贴异常还是别的报错：先让 pipeline 把它关掉，
-#                     要不要重粘交给下一步的字段校验去判断，别让弹窗一直杵在那儿挡路）
+#                     是否需要重粘由下一步的字段校验判断，弹窗不应长期残留遮挡）
 #                     class_part 是防误伤的：别的程序也可能有叫「错误提示」的窗口，类名不含金蝶的一律不算
-#                     命中返回占位框(0,0,1,1)，只配 PopupKeys / ClickKey 这类不需要目标的动作，别配 Click+target
+#                     命中返回占位框(0,0,1,1)，只配 PopupKeys / ClickKey 这类不需要目标的动作，不要配 Click+target
 #                     配 inverse: true 就是「弹窗已经关了」判据（关闭校验节点用）
 
 import json
@@ -51,17 +50,17 @@ from maa.context import Context
 
 from common import _params  #pipeline 参数解析兜底（写坏打日志返回False，不在agent进程里抛异常）
 
-_ERROR_POPUP_TITLE = "错误提示"  #金蝶错误弹窗的标题栏文字（粘贴异常弹窗就是它，现场 FindWindowW 实测命中）
+_ERROR_POPUP_TITLE = "错误提示"  #金蝶错误弹窗的标题栏文字
 _ERROR_POPUP_CLASS = "Kingdee.BOS.XPF.App.exe"  #金蝶 WPF 窗口类名里嵌的可执行文件名，用来把金蝶的弹窗和别人的窗口分开
 
 _IMAGE_SHORT_SIDE = 720  #图像空间短边：maa 把窗口客户区按短边归一化成 1216x720，pipeline 的 ROI 都按它标定
 _MIN_CLIENT_SIDE = 200  #客户区任一边小于此值就认为几何不可信（窗口最小化时是 237x39 的假几何）
 _DEFAULT_MOVE_MS = 120  #移动到按下之间等多久（给 XPF 建立 hover/命中态）
-_DEFAULT_HOLD_MS = 80  #按下到抬起之间按住多久
+_DEFAULT_HOLD_MS = 80
 _DEFAULT_SETTLE_MS = 150  #抬起之后等多久再让下一个节点抓图，避免抓到「按下态」的中间帧
 _DPI_READY = False  #进程级 DPI 感知只能设一次，设过就不再试；线程级的每次调用都设
-_MOUSEEVENTF_LEFTDOWN = 0x0002  #左键按下
-_MOUSEEVENTF_LEFTUP = 0x0004  #左键抬起
+_MOUSEEVENTF_LEFTDOWN = 0x0002
+_MOUSEEVENTF_LEFTUP = 0x0004
 
 
 class _MOUSEINPUT(ctypes.Structure):
@@ -147,39 +146,38 @@ def _integrity_label(rid):
 
 def _find_window(user32, pattern):
     #按正则枚举可见顶层窗口，返回 (选中的hwnd, 候选清单)；没找到返回 (0, [])
-    #评分键 (cls_match, fullmatch, area)：类名也命中正则的最优先 —— EnumWindows 枚举顺序无保证，
-    #旧版取 found[0] 等于抽签，曾经抽到标题带「金蝶」的 Obsidian 笔记窗口
+    #评分键 (cls_match, fullmatch, area)：类名也命中正则的最优先 —— EnumWindows 枚举顺序无保证，不能直接取首位。
     found = []
 
     @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)  #EnumWindows 回调必须返回 4 字节 BOOL；c_bool 是 1 字节，x64 下属于未定义行为
     def enum_windows_proc(hwnd, lparam):
-        length = user32.GetWindowTextLengthW(hwnd)  #获取窗口标题长度
+        length = user32.GetWindowTextLengthW(hwnd)
         if length > 0:
-            buffer = ctypes.create_unicode_buffer(length + 1)  #创建缓冲区
-            user32.GetWindowTextW(hwnd, buffer, length + 1)  #获取窗口标题
+            buffer = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(hwnd, buffer, length + 1)
             title = buffer.value
-            if re.search(pattern, title) and user32.IsWindowVisible(hwnd):  #匹配正则表达式且窗口可见
-                cls_buf = ctypes.create_unicode_buffer(256)  #类名缓冲区
-                user32.GetClassNameW(hwnd, cls_buf, 256)  #窗口类名
+            if re.search(pattern, title) and user32.IsWindowVisible(hwnd):
+                cls_buf = ctypes.create_unicode_buffer(256)
+                user32.GetClassNameW(hwnd, cls_buf, 256)
                 rect = wintypes.RECT()
                 user32.GetWindowRect(hwnd, ctypes.byref(rect))
-                area = max(0, rect.right - rect.left) * max(0, rect.bottom - rect.top)  #窗口面积（最小化时是小几何）
+                area = max(0, rect.right - rect.left) * max(0, rect.bottom - rect.top)
                 found.append({
                     "hwnd": hwnd,
                     "cls": cls_buf.value,
                     "area": area,
                     "fullmatch": re.fullmatch(pattern, title) is not None,  #标题整体匹配（而非被长标题蹭到）
-                    "cls_match": re.search(pattern, cls_buf.value) is not None,  #类名也命中正则
+                    "cls_match": re.search(pattern, cls_buf.value) is not None,
                 })
         return True  #收全候选再评分，不能命中就停
-    user32.EnumWindows(enum_windows_proc, None)  #开始遍历所有窗口
+    user32.EnumWindows(enum_windows_proc, None)
     if not found:
         return 0, []
     best = max(found, key=lambda item: (item["cls_match"], item["fullmatch"], item["area"]))
     return best["hwnd"], found
 
 
-@AgentServer.custom_action("Win32BringToFront")  #将指定窗口置顶
+@AgentServer.custom_action("Win32BringToFront")
 class Win32BringToFront(CustomAction):
 
     def run(
@@ -191,17 +189,17 @@ class Win32BringToFront(CustomAction):
         param = _params(argv)  #拉取参数；参数写坏打日志返回False，不在agent进程里抛异常
         if param is None:
             return False
-        pattern = param.get("window_regex", "")  #要匹配的窗口标题正则
+        pattern = param.get("window_regex", "")
         if not pattern:
-            return False  #没配置window_regex参数，直接返回False
+            return False
 
 
-        user32 = ctypes.windll.user32  #api调入入口
-        k32 = ctypes.windll.kernel32  #进程/线程相关
+        user32 = ctypes.windll.user32
+        k32 = ctypes.windll.kernel32
 
         hwnd, candidates = _find_window(user32, pattern)
         if not hwnd:
-            return False  #没找到匹配的窗口（有可能是没打开），返回False
+            return False
 
         if len(candidates) > 1:
             #正则命中的窗口不止一个时把候选都打出来：选错窗口这类问题靠这行日志定位
@@ -220,9 +218,9 @@ class Win32BringToFront(CustomAction):
         #后面的识别只会全部超时 —— 与其拖 20 秒，不如当场把原因说清楚并返回False
         if user32.IsIconic(hwnd):
             pid = wintypes.DWORD()
-            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))  #窗口所属进程
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
             rid = _integrity_rid(pid.value)
-            mine = _integrity_rid(k32.GetCurrentProcessId())  #本进程（agent）的完整性级别
+            mine = _integrity_rid(k32.GetCurrentProcessId())
             print(f"[Win32BringToFront] 窗口还原失败：仍处于最小化（hwnd={hwnd}）。"
                   f"目标进程完整性={_integrity_label(rid)}，本进程完整性={_integrity_label(mine)}；"
                   f"低级别进程改不了高级别进程的窗口（UIPI），这不是重试能解决的。"
@@ -231,7 +229,6 @@ class Win32BringToFront(CustomAction):
                   f"直接运行 Kingdee.BOS.XPF.App.exe 即可")
             return False
 
-        #本动作原先一行日志都没有，窗口出问题只能靠 on_error 截图反推，补上状态快照
         rect = wintypes.RECT()
         user32.GetWindowRect(hwnd, ctypes.byref(rect))
         print(f"[Win32BringToFront] hwnd={hwnd} iconic_at_entry={iconic_at_entry} "
@@ -257,10 +254,10 @@ class Win32BringToFront(CustomAction):
             if attach_tid:
                 user32.AttachThreadInput(our_tid, attach_tid, False)
 
-        for round_no in range(1, 4):  #最多 3 轮
+        for round_no in range(1, 4):
             fg_hwnd = user32.GetForegroundWindow()  #当前前台窗口（每轮重取，它会被上一轮改变）
             if fg_hwnd == hwnd:
-                break  #已经到位，不必再动
+                break
 
             if round_no <= 2:
                 #前两轮借「当前前台窗口的线程」的资格，比只挂目标线程更有效
@@ -272,7 +269,6 @@ class Win32BringToFront(CustomAction):
 
             time.sleep(0.15)  #给窗口切换一点时间
 
-        #旧版无脑返回 True 装成功，前台实际被 Windows 间歇性拒绝（日志 327 次 Failed to ensure foreground）。
         #现在真的到位才报成功；结果连两侧句柄一起打日志，失败时不用靠 on_error 截图反推。
         at_front = user32.GetForegroundWindow() == hwnd
         print(f"[Win32BringToFront] 置顶{'成功' if at_front else '失败'} "
@@ -282,7 +278,7 @@ class Win32BringToFront(CustomAction):
 
 def _prepare_user32(user32):
     #给本模块用到的 user32 函数补上 argtypes/restype：64 位下 hwnd 超过 int 范围时，
-    #不声明就会被 ctypes 截断成 32 位（现有代码靠 hwnd 数值小侥幸没炸，新代码不赌这个）
+    #不声明就会被 ctypes 截断成 32 位
     user32.GetForegroundWindow.argtypes = []
     user32.GetForegroundWindow.restype = ctypes.c_void_p
     user32.GetWindowThreadProcessId.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.DWORD)]
@@ -363,7 +359,7 @@ def _bring_to_front(user32, k32, hwnd):
 
 
 def _as_ms(value, default):
-    #毫秒参数的宽松解析：没给/给了非整数就用默认值，别让一个笔误把动作搞成不点击
+    #毫秒参数的宽松解析：未给或给了非整数时用默认值，避免笔误导致动作不执行
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return default
     if value < 0:
@@ -388,9 +384,9 @@ class SynthClick(CustomAction):
             print("[SynthClick] 必须给window_regex参数（ROI是按这个窗口的客户区标定的）")
             return False
         activate_pattern = param.get("activate_regex") or pattern  #要点到前台的窗口，默认就是基准窗口
-        move_ms = _as_ms(param.get("move_ms"), _DEFAULT_MOVE_MS)  #移动到按下之间的等待
-        hold_ms = _as_ms(param.get("hold_ms"), _DEFAULT_HOLD_MS)  #按住时长
-        settle_ms = _as_ms(param.get("settle_ms"), _DEFAULT_SETTLE_MS)  #抬起后的收尾等待
+        move_ms = _as_ms(param.get("move_ms"), _DEFAULT_MOVE_MS)
+        hold_ms = _as_ms(param.get("hold_ms"), _DEFAULT_HOLD_MS)
+        settle_ms = _as_ms(param.get("settle_ms"), _DEFAULT_SETTLE_MS)
 
         user32 = ctypes.windll.user32
         k32 = ctypes.windll.kernel32
@@ -413,7 +409,7 @@ class SynthClick(CustomAction):
 
         #本动作存在的全部理由：点击前必须让「弹窗自己」在前台。maa 的 Seize 输入法在
         #touch_down/touch_up 里各把主窗拉一次前台，弹窗被推成非前台后，WPF 会把这一次点击
-        #当成「激活点击」吃掉 —— 「确定」连点 64 次毫无反应就是这么来的
+        #当成「激活点击」吃掉，这次点击同样无效
         if not _bring_to_front(user32, k32, target_hwnd):
             fg = user32.GetForegroundWindow()
             pid = wintypes.DWORD()
