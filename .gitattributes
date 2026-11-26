@@ -2,6 +2,12 @@
 # enforce LF line endings regardless of OS or git configurations.
 * text=auto eol=lf
 
+# Windows batch scripts MUST stay CRLF. cmd.exe mis-parses LF-only files:
+# multi-line if/else blocks get split line-by-line and goto/call labels break,
+# so the window flashes and dies before any pause. Keep CRLF on every checkout.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
 # Isolate binary files in case the auto-detection algorithm fails and
 # marks them as text files (which could brick them).
 *.{png,jpg,jpeg,gif,webp,woff,woff2} binary
