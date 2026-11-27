@@ -106,6 +106,18 @@
             ]
         },
         {
+            "name": "直接调拨单(网页端)",
+            "entry": "TransferOrderWebEntry",
+            "description": "**注意！！！**\n\n请在表中核对字段信息准确性。\n\n物料编码与数量逐行填；调出/调入库存组织、调拨类型、备注只填首行即可。\n\n默认在 Excel 中空一行为一张单。\n\n该任务关闭「是否提交（直接调拨单）」时只填写不提交，跑完留未保存页签手动关（默认，测试行为）；打开后每张单填完自动提交，真单进 ERP 工作流。",
+            "resource": [
+                "网页"
+            ],
+            "option": [
+                "直接调拨单文件(网页)",
+                "是否提交（直接调拨单）"
+            ]
+        },
+        {
             "name": "直接调拨单",
             "entry": "直接调拨单任务入口",
             "resource": [
@@ -137,7 +149,7 @@
         "单据文件": {
             "type": "file",
             "label": "单据文件",
-            "description": "Excel 列：物料编码、数量、调出仓库、调出仓位、调入仓库、调入仓位、调出库存组织、调入库存组织、备注。两个组织与备注填首行即可，仓库列必填；组织填代码或名称，同一张单统一写法。",
+            "description": "Excel 列：物料编码、数量、调出仓库、调出仓位、调入仓库、调入仓位、调出库存组织、调入库存组织、调拨类型、备注。两个组织、调拨类型与备注填首行即可，仓库列必填；组织填代码或名称，同一张单统一写法。调拨类型只能填「组织内调拨」或「跨组织调拨」，留空则按两个组织是否相同自动判断（旧模版没有这列也能直接跑）。",
             "template":"template/直接调拨单模版.xlsx",
             "inputs": [
                 {
@@ -213,6 +225,53 @@
                         "TransferRequisitionFormFillLocInWeb": {
                             "next": [
                                 "TransferRequisitionFormNewBillWeb"
+                            ]
+                        }
+                    }
+                }
+            ]
+        },
+        "直接调拨单文件(网页)": {
+            "type": "file",
+            "label": "直接调拨单文件(网页)",
+            "description": "Excel 列：物料编码、数量、调出仓库、调出仓位、调入仓库、调入仓位、调出库存组织、调入库存组织、调拨类型、备注。调出/调入库存组织、调拨类型与备注填首行即可，仓库列必填；组织填代码或名称，同一张单统一写法。调拨类型留空则按两个组织是否相同自动判断。区别只在执行方式：经 Edge 调试端口驱动金蝶云网页端，不抢前台、不动鼠标键盘。",
+            "template": "template/直接调拨单模版.xlsx",
+            "inputs": [
+                {
+                    "name": "直接调拨单文件(网页)",
+                    "label": "拖拽 Excel 文件到此，或点击浏览选择文件",
+                    "description": "浏览",
+                    "pipeline_type": "string"
+                }
+            ],
+            "pipeline_override": {
+                "TransferOrderWebReadExcel": {
+                    "custom_action_param": { "path": "{直接调拨单文件(网页)}", "template": "transfer" }
+                }
+            }
+        },
+        "是否提交（直接调拨单）": {
+            "type": "switch",
+            "label": "是否提交（直接调拨单）",
+            "description": "开：每张单填完自动提交（真单进 ERP 工作流，提交后不可逆，确认是真实单据再开）。关：只填写不提交，跑完留未保存页签手动关（默认，测试行为）。",
+            "default_case": "No",
+            "cases": [
+                {
+                    "name": "Yes",
+                    "pipeline_override": {
+                        "TransferOrderWebFillLocIn": {
+                            "next": [
+                                "TransferOrderWebSubmit"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "No",
+                    "pipeline_override": {
+                        "TransferOrderWebFillLocIn": {
+                            "next": [
+                                "TransferOrderWebNewBill"
                             ]
                         }
                     }

@@ -4,7 +4,10 @@
 #        页面停在 K3Cloud html5 主控台；本模块只连这个已打开的页面，绝不 navigate（裸导航会销毁金蝶会话）
 #  依赖：websocket-client（requirements.txt）；Edge 没开 / 页面不在 K3Cloud / 登录态失效 → 动作 False 走 on_error，
 #        日志会写明是哪种（排查用 WebPing）
-#  WebSetForm         param: {"form": "requisition"}  切换单据白名单；v1 只支持 requisition（直接调拨单为前台基线）
+#  WebSetForm         param: {"form": "requisition"} / {"form": "transfer"}  切换单据（必须是任务第一个节点）
+#                     一次切换同时定下：明细网格实体 key（申请单 FENTITY / 直接调拨单 FBILLENTRY）+ 明细列/单头字段表。
+#                     两套单据的字段 key 不同源（如调出仓库 FSTOCKID vs FSRCSTOCKID、调拨类型 FTRANSTYPE vs FTRANSFERBIZTYPE），
+#                     故必须分表；未调 WebSetForm 时按 requisition 兜底（1.0.6 既有任务不带这层假设）
 #  WebNavigate        param: {"text": "调拨申请单列表", "wait_label": "申请组织", "timeout_ms": 60000}
 #                     主控台点 text → 等列表 → 点「新增」→ 等编辑页就位（wait_label 对应单头字段出现）
 #  WebSetCell         param: {"field": "material_code", "row": 0, "value": "05-002-03064"}
@@ -33,16 +36,20 @@
 #                     下拉：遍历候选 value 逐个试选、读显示文本与目标等值匹配后提交再回读
 #                     账套选项不同也通用（零硬编码业务词）；找不到等值项还原原值并 False，日志列出候选数
 #  WebBlockPaste      param: {"field": "quantity"} / {"field": "source_warehouse", "broadcast": true} / {"field": "material_code", "values": ["a","b"]}
-#                     整列块粘贴（几百物料的正解）：右键首格 → 点「块粘贴」→ 弹窗 textarea 灌整列换行文本 →
-#                     点「确定」→ 校验整列非空
+#                     整列块粘贴（几百物料的正解）：左键点首格 → Escape 退编辑态（格仍是 current）→ 右键首格 →
+#                     点「块粘贴」→ 弹窗 textarea 灌整列换行文本 → 点「确定」→ 校验整列非空
+#                     左键+Escape 不能省：金蝶只给 current 格出「块粘贴」菜单项，只右键没有；菜单项用 JS 派发
+#                     mouseover/mousedown/mouseup/click 点（CDP 物理点击偶发只关菜单不触发项动作），失败再回退物理点击
 #                     提交必须点「确定」：textarea 里 Enter 只是换行，按回车整列不落地
 #                     粘贴前不补行：金蝶块粘贴自动扩行；新草稿 0 行时兜底点一次「新增行」给粘贴一个落点
 #                     物料列校验读名称列被金蝶带出（编码解析成功的标志）；弹性域（仓位）不支持块粘贴
 #  WebPatchFill       param: {"field": "source_warehouse"}  整单同值列一次铺开（批量填充）：
 #                     源格填值 → 单击该格选中 → 点明细工具栏「批量填充」→ 一次铺满整列
 #                     前提：物料列必须已有值，金蝶对空行拒绝填充；按钮只认真实鼠标事件，JS .click() 无效
-#                     源格填值失败自动重试一次；铺开段（单击选中→点填充→校验）整体重试 2 轮，校验 8s 轮询，
-#                     current 列名漂移则重单击
+#                     源格填值失败自动重试一次；铺开段（单击选中→点填充→校验）整体重试 2 轮，
+#                     校验轮询普通列 8s、弹性域（仓位）16s——仓位是逐行写维度，8s 只铺到一半，
+#                     提前进第 2 轮会在网格 busy 时点掉源格值（实测 %s 只剩空值）；current 列名漂移则重单击
+#                     第 2 轮开始前源格若被异步收尾清空，会先重填一次再填充，不拿空值铺列
 #  WebReadCell        param: {"field": "source_warehouse", "row": 0, "expect": "关键词"}
 #                     回读明细格子（编码+名称拼接后判断），判据三选一优先级同 UiaReadCell：not_expect > nonzero > expect
 #  WebRowCount        (custom_recognition) param: {"field": "material_code"}
@@ -50,7 +57,8 @@
 #  WebPing            param: {}  探测 CDP/登录态/当前页形态，排查连接问题用（正常流程不调）
 #  WebSubmit          param: {}  顶栏「提交」真实鼠标点击 + 确认弹窗点确定。落地硬判据=
 #                     「单据编号」由占位「保存时自动生成」变真编号（或页签标题脱离「新增」）
-#                     真单进 ERP 工作流：由任务开关「是否提交并下推单据」接入链路（Yes 才走），默认 No=只填不提交
+#                     真单进 ERP 工作流：由任务开关「是否提交并下推单据」/「是否提交（直接调拨单）」接入链路（Yes 才走），
+#                     默认 No=只填不提交（两个任务各一个开关，见 interface.json option）
 #  WebAudit           param: {}  顶栏「审核」，同 WebSubmit 机制；前置=已提交（按钮灰则拒点）
 #                     落地硬判据=「下推」按钮由灰变亮（不赌状态文案）
 #  WebPushDown        param: {}  顶栏「下推」；前置=已审核（灰则拒点）。落地判据=弹窗关+新目标单据页签；
@@ -87,9 +95,10 @@ _WEB_URL = "https://erp.xair.cn/K3Cloud/html5/"  #与 start_web.ps1 的默认 -U
 _JS_TIMEOUT = 20.0
 _POLL_S = 0.5
 
-#明细列：Excel字段 → 网页 grid 列标识 + 是否基础资料（True=F7 写 __value.number；"flex"=弹性域 v1 不支持）
+#明细列：Excel字段 → 网页 grid 列标识 + 是否基础资料（True=F7 写 __value.number；"flex"=弹性域，走维度弹窗）
 #列标识与 UIA 的 AutomationId、WebAPI 字段名同源（见 uia_actions 文件头），不受列顺序/横向滚动影响
-_ENTRY_FIELDS = {
+#⚠️两套单据必须分表：同名 key（如 source_warehouse）在两边指向不同列，合表会写错列
+_ENTRY_FIELDS_REQUISITION = {
     "material_code": ("FMATERIALID", True),
     "source_org": ("FSTOCKORGID", True),
     "target_org": ("FSTOCKORGINID", True),
@@ -101,8 +110,18 @@ _ENTRY_FIELDS = {
     "target_location": ("FSTOCKLOCINID", "flex"),
 }
 
+_ENTRY_FIELDS_TRANSFER = {
+    "material_code": ("FMATERIALID", True),
+    "quantity": ("FQTY", False),
+    "note": ("FNOTEENTRY", False),  #明细备注（直接调拨单是 FNOTEENTRY，FNOTE 是单头）
+    "source_warehouse": ("FSRCSTOCKID", True),  #调出仓库（实测键入+Enter 可落地，不必开弹窗）
+    "source_location": ("FSRCSTOCKLOCID", "flex"),  #调出仓位（弹性域，与申请单同构）
+    "target_warehouse": ("FDESTSTOCKID", True),
+    "target_location": ("FDESTSTOCKLOCID", "flex"),
+}
+
 #单头文本/日期：Excel字段 → (网页key, 类型)；写入走 CDP 真实输入链
-_HEADER_TEXT_FIELDS = {
+_HEADER_TEXT_FIELDS_REQUISITION = {
     "contact": ("FCONTACTS", "text"),
     "phone": ("FCONTACTNUMBER", "text"),
     "address": ("FMAILINGADDRESS", "text"),
@@ -110,27 +129,71 @@ _HEADER_TEXT_FIELDS = {
     "demand_date": ("F_JF_XQDATE", "date"),
 }
 
+_HEADER_TEXT_FIELDS_TRANSFER = {
+    "remark": ("FNOTE", "textarea"),  #实测直接调拨单备注框是 FNOTE 的 TEXTAREA（不是申请单的 FREMARKS）
+}
+
 #单头基础资料：Excel字段 → 网页key；写入走放大镜→选择弹窗→返回数据
-_HEADER_F7_FIELDS = {
+_HEADER_F7_FIELDS_REQUISITION = {
     "apply_org": "FAPPORGID",
     "applicant": "FAPPLICANT",
 }
 
+_HEADER_F7_FIELDS_TRANSFER = {
+    "source_org": "FSTOCKOUTORGID",  #调出库存组织（实测 key）
+    "target_org": "FSTOCKORGID",  #调入库存组织（注意与上面只差一个 OUT，写反就整体换组织）
+}
+
 #单头下拉：Excel字段 → 网页key；写入走"试值读文本"等值匹配
-_HEADER_COMBO_FIELDS = {
+_HEADER_COMBO_FIELDS_REQUISITION = {
     "transfer_type": "FTRANSTYPE",
     "apply_type": "F_JF_REQUIRETYPE",
 }
 
-#wait_label（中文标签）→ 单头网页key：WebNavigate 用它判定编辑页就位
-_LABEL_TO_HEADER = {
+_HEADER_COMBO_FIELDS_TRANSFER = {
+    "transfer_type": "FTRANSFERBIZTYPE",  #调拨类型（本账套没有 FTRANSTYPE，实测候选：组织内调拨/跨组织调拨）
+}
+
+#wait_label（中文标签）→ 单头网页key：WebNavigate/WebNewBill 用它判定编辑页就位
+_LABEL_TO_HEADER_REQUISITION = {
     "申请组织": "FAPPORGID", "申请人": "FAPPLICANT", "联系人": "FCONTACTS",
     "联系电话": "FCONTACTNUMBER", "通讯地址": "FMAILINGADDRESS", "需求日期": "F_JF_XQDATE",
     "调拨类型": "FTRANSTYPE", "调拨申请类型": "F_JF_REQUIRETYPE", "备注": "FREMARKS",
 }
 
-_FORMS = ("requisition",)  #v1 只做调拨申请单；直接调拨单维持前台基线
-_ACTIVE_FORM = None
+_LABEL_TO_HEADER_TRANSFER = {
+    "调出库存组织": "FSTOCKOUTORGID", "调入库存组织": "FSTOCKORGID",
+    "调拨类型": "FTRANSFERBIZTYPE", "备注": "FNOTE",
+}
+
+#单据白名单：form → 明细网格实体 key + 四张单头/明细表。
+#实体 key 必须按单据切换：调拨申请单 -FENTITY-c / 直接调拨单 -FBILLENTRY-c（网页端实测），
+#写死一个则另一套单据连格子都定位不到（_JS_* 里的 FENTITY 由 _js() 统一替换）
+_FORMS = {
+    "requisition": {
+        "entry": "FENTITY",
+        "cells": _ENTRY_FIELDS_REQUISITION,
+        "text": _HEADER_TEXT_FIELDS_REQUISITION,
+        "f7": _HEADER_F7_FIELDS_REQUISITION,
+        "combo": _HEADER_COMBO_FIELDS_REQUISITION,
+        "labels": _LABEL_TO_HEADER_REQUISITION,
+    },
+    "transfer": {
+        "entry": "FBILLENTRY",
+        "cells": _ENTRY_FIELDS_TRANSFER,
+        "text": _HEADER_TEXT_FIELDS_TRANSFER,
+        "f7": _HEADER_F7_FIELDS_TRANSFER,
+        "combo": _HEADER_COMBO_FIELDS_TRANSFER,
+        "labels": _LABEL_TO_HEADER_TRANSFER,
+    },
+}
+
+_ACTIVE_FORM = None  #WebSetForm 设；未设时按 requisition（1.0.6 网页版只有申请单一个任务，保持既有行为）
+
+
+def _tbl():
+    #当前单据的字段表。每步现读 _ACTIVE_FORM（WebSetForm 是每个任务的第一个节点）
+    return _FORMS.get(_ACTIVE_FORM or "requisition") or _FORMS["requisition"]
 
 #====================== CDP 管道 ======================
 
@@ -245,6 +308,10 @@ class _Cdp:
         return {"err": "CDP 应答超时"}
 
     def js(self, expression):
+        #实体 key 统一替换：JS 模板里写死 FENTITY 的那个位置，这里按当前单据换成
+        #FENTITY（调拨申请单）/ FBILLENTRY（直接调拨单）。13 个网格模板共用这一处，
+        #避免 30+ 个调用点各传一遍实体名（漏一个就是整套动作定位到不存在的格子）
+        expression = expression.replace("FENTITY", _tbl()["entry"])
         self._id += 1
         mid = self._id
         try:
@@ -532,18 +599,20 @@ _JS_TOOLBAR_BTN = r"""
 
 _JS_DISCARD_NO = r"""
 (() => {
-  //顶部黄色横幅「内容已经修改，是否保存？」里的【否】。
-  //⚠️它不是 .k-window（清场/弹窗检测都扫不到），容器特征 kd-msg-btn-container（2026-11-23 实测）
-  const btns = [...document.querySelectorAll('a,button,span,div')].filter(e => {
-    const tx = (e.textContent || '').trim();
-    if (tx !== '否') return false;
-    const r = e.getBoundingClientRect();
-    return r.width > 8 && r.height > 6 && r.top > 0 && r.top < 400;
-  });
-  if (!btns.length) return {none: true};
-  btns.sort((a, b) => (a.textContent || '').length - (b.textContent || '').length);
-  const r = btns[0].getBoundingClientRect();
-  return {x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2)};
+  //顶部横幅「内容已经修改，是否先保存？ 是/否」里的【否】（点它=放弃当前未保存单）。
+  //⚠️容器 id 后缀是 POPFLOATEMESSAGE，不是 .k-window 也不是 POPFLOAT（2026-11-26 实测）；
+  //  且必须限定容器内找：全页按文本「否」扫会命中明细里值恰为「否」的字段，拿到假坐标（实测 (1022,202)）
+  const vis = e => { const r = e.getBoundingClientRect(); return r.width > 8 && r.height > 6; };
+  const boxes = [...document.querySelectorAll('[id$="POPFLOATEMESSAGE"], [id$="POPFLOAT"]')].filter(vis);
+  for (const box of boxes) {
+    const b = [...box.querySelectorAll('a,button,span,div')].find(e =>
+      (e.textContent || '').trim() === '否' && vis(e) && e.children.length === 0);
+    if (b) {
+      const r = b.getBoundingClientRect();
+      return {x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2)};
+    }
+  }
+  return {none: true};
 })()
 """
 
@@ -683,6 +752,7 @@ _JS_FLEX_ICON = r"""
     const r = b.getBoundingClientRect();
     return (r.width > 2 && r.height > 2) ? {x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2)} : null;
   }
+  td[0].scrollIntoView({block: 'center'});
   let ic = findIcon();
   if (!ic) {
     try { g.editCell(td); } catch (e) {}
@@ -863,6 +933,31 @@ _JS_FLEX_CANCEL = r"""
 })()
 """
 
+_JS_CTX_GUARD_ON = r"""
+(() => {
+  //掐掉浏览器原生右键菜单：金蝶没吃住的那次右键（格子不是 current、坐标落在弹窗上）
+  //会漏出 Edge 自己的「返回/刷新/检查…」菜单。原生菜单是浏览器层的，CDP 的输入事件只进渲染进程，
+  //既关不掉也点不动，会一直盖在页面上挡住后续点击。
+  //捕获阶段 preventDefault 只压浏览器默认行为，金蝶自己的菜单是 DOM 画的、照样弹
+  if (window.__maaxaCtxGuard) return {ok: true, already: true};
+  const h = e => e.preventDefault();
+  window.__maaxaCtxGuard = h;
+  document.addEventListener('contextmenu', h, true);
+  return {ok: true};
+})()
+"""
+
+_JS_CTX_GUARD_OFF = r"""
+(() => {
+  //用完就摘：只在本动作期间压原生菜单，不影响用户在这个窗口里手工右键
+  const h = window.__maaxaCtxGuard;
+  if (!h) return {ok: true, none: true};
+  document.removeEventListener('contextmenu', h, true);
+  window.__maaxaCtxGuard = null;
+  return {ok: true};
+})()
+"""
+
 _JS_BLOCKPASTE_MENU = r"""
 (() => {
   //右键菜单里的「块粘贴」项坐标（菜单异步出现，调用方轮询）
@@ -872,6 +967,24 @@ _JS_BLOCKPASTE_MENU = r"""
   if (!el) return {noItem: true};
   const r = el.getBoundingClientRect();
   return {x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2)};
+})()
+"""
+
+_JS_BLOCKPASTE_PICK = r"""
+(() => {
+  //JS直接对「块粘贴」菜单项派发事件：CDP 物理点击偶尔只把菜单关掉、不触发项动作（2026-11-26 实测）
+  const vis = e => { const r = e.getBoundingClientRect(); return r.width > 5 && r.height > 5; };
+  const el = [...document.querySelectorAll('li,.k-item,[role=menuitem],a,span,div')]
+    .find(e => (e.textContent || '').trim() === '块粘贴' && vis(e) && e.children.length <= 1);
+  if (!el) return {noItem: true};
+  const r = el.getBoundingClientRect();
+  const x = Math.round(r.x + r.width / 2), y = Math.round(r.y + r.height / 2);
+  const opt = {bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0};
+  el.dispatchEvent(new MouseEvent('mouseover', opt));
+  el.dispatchEvent(new MouseEvent('mousedown', opt));
+  el.dispatchEvent(new MouseEvent('mouseup', opt));
+  el.dispatchEvent(new MouseEvent('click', opt));
+  return {ok: true, tag: el.tagName};
 })()
 """
 
@@ -906,6 +1019,7 @@ _JS_PATCH_FILL_BTN = r"""
     || [...(bar || document).querySelectorAll('a,span,div,li')].find(e =>
          (e.textContent || '').trim() === '批量填充' && e.getBoundingClientRect().width > 10);
   if (!el) return {err: 'no-patchfill-btn'};
+  el.scrollIntoView({block: 'center'});
   const r = el.getBoundingClientRect();
   if (r.width < 8 || r.height < 6) return {err: 'patchfill-hidden'};
   return {x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2)};
@@ -1173,6 +1287,8 @@ _JS_ADD_ROW = r"""
     return tx === '新增行' && r.width > 10 && r.height > 8;
   });
   if (!el) return {err: 'no-add-row'};
+  //按钮可能在视口外（直接调拨单明细高），先滚进视口再返回坐标，否则CDP点空
+  el.scrollIntoView({block: 'center'});
   const r = el.getBoundingClientRect();
   return {x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2)};
 })()
@@ -1185,7 +1301,8 @@ _JS_PING = r"""
   console: (document.body.innerText || '').includes('常用功能'),
   jq: typeof window.jQuery,
   drafts: [...new Set([...document.querySelectorAll('[id]')]
-    .map(e => (e.id.match(/^([0-9a-f-]{36})-FENTITY-c$/i) || [])[1]).filter(Boolean))],
+    .map(e => { const m = e.id.match(/^([0-9a-f-]{36})-([A-Z][A-Z0-9_]*)-c$/i);
+                return m ? m[1] + ':' + m[2] : ''; }).filter(Boolean))],
 })())
 """
 
@@ -1207,7 +1324,7 @@ def _draft(cdp, tag):
     if v.get("err") == "login-page":
         return None, "登录态失效，请在 Edge 里重新登录"
     if v.get("err") == "no-draft":
-        return None, "没有打开的调拨申请单编辑页（WebNavigate 跑了吗）"
+        return None, "没有打开的编辑页（WebNavigate 跑了吗 / 当前单据的明细网格实体对不对）"
     if v.get("err") == "multi-draft":
         return None, f"同时可见多个草稿页签 {v.get('pids')}，分不清写哪张 → 拒写（同 _detail_grid 原则）"
     return v.get("pid"), None
@@ -1234,8 +1351,28 @@ def _row_value(field, row):
 
 
 def _order_value(field):
-    #单头字段整单同值，取首行（同 uia_actions._header_value_from_order）
-    return _row_value(field, 0)
+    #单头字段整单同值：取 TransferOrder 的单头属性，口径与桌面端 PasteOrderField 的 getattr(order, field) 一致。
+    #不能照 items[0] 读：直接调拨单的备注是「整单首个非空，默认 *」、调拨类型是「按两个组织推导」，
+    #这两条只算在 order 上（见 excel_reader._build_order），读首行会拿到空串 ——
+    #申请单恰好把单头列都写在首行，所以过去没暴露。
+    getter = uia_actions._COLUMN_ATTR_BY_FIELD.get(field)
+    if getter is None:
+        return None
+    try:
+        import transfer_actions
+        order = transfer_actions._current_order()
+        if order is None:
+            return None
+        v = getattr(order, field, None)
+        if v in (None, "") and getattr(order, "items", None):
+            v = getter(order.items[0])
+    except Exception:
+        return None
+    if v is None:
+        return ""
+    if hasattr(v, "strftime"):
+        return v.strftime("%Y-%m-%d")  #日期对象 → 网页输入框吃的写法
+    return str(v)
 
 
 def _ensure_rows(cdp, pid, need, tag):
@@ -1376,7 +1513,10 @@ def _clear_windows(cdp, to=6.0):
             #「主业务组织已改变」取消=放弃待生效的组织变更；「内容已经修改，是否保存」
             #取消=留在当前单不保存（点「是/确定」会真保存单据进 ERP，测试期绝对禁止）
             clicked = False
-            for label, pattern in (("取消", r"/主业务组织/"), ("取消", r"/内容已经修改|是否保存/")):
+            #第三条是防御性兜底（测试中未实际遇到）：金蝶的「存在必录项值为空！」这类报错横幅只有【确定】，
+            #纯提示、不保存单据；pattern 只认「必录项」字样，不会误点保存/提交类横幅。真遇上时不点掉会挡住后续点击
+            for label, pattern in (("取消", r"/主业务组织/"), ("取消", r"/内容已经修改|是否保存/"),
+                                   ("确定", r"/存在必录项|必录项为空/")):
                 b = _banner_btn(cdp, label, pattern)
                 if b.get("x"):
                     cdp.click(b["x"], b["y"])
@@ -1506,21 +1646,28 @@ def _fill_flex(cdp, pid, key, row, value, tag):
 
     #⚠️先清空输入框：格子已有值时（重跑同一单）直接键入会追加在旧值后面，模糊匹配必失败
     #清空用三击+Delete：金蝶 F7 框里 Ctrl+A 不生效，只有三击建立选区才删得干净
-    cdp.triple_click(inp["x"], inp["y"])
-    time.sleep(0.3)
-    cdp.key_delete()
-    time.sleep(0.3)
-    cdp.type_chars(value)  #insertText 不触发 typeahead，必须逐字符键盘事件
+    #模糊匹配下拉偶发不弹（输入框没吃住焦点时 typeahead 不触发），noPop 就清空重敲一次；
+    #noHit（下拉出来了但确实没这个值）不重试，那是真没有
     hit = {}
-    end = time.time() + 10.0
-    while time.time() < end:
-        r = cdp.js(_JS_FUZZY_HIT_ROW % json.dumps(value, ensure_ascii=False))
-        hit = r.get("value") if "value" in r else r
-        if not isinstance(hit, dict):
-            hit = {}
+    for k in range(2):
+        cdp.triple_click(inp["x"], inp["y"])
+        time.sleep(0.3)
+        cdp.key_delete()
+        time.sleep(0.3)
+        cdp.type_chars(value)  #insertText 不触发 typeahead，必须逐字符键盘事件
+        end = time.time() + 10.0
+        while time.time() < end:
+            r = cdp.js(_JS_FUZZY_HIT_ROW % json.dumps(value, ensure_ascii=False))
+            hit = r.get("value") if "value" in r else r
+            if not isinstance(hit, dict):
+                hit = {}
+            if hit.get("x") or hit.get("noHit"):
+                break  #命中 / 下拉出来了但没这个值 —— 确定结果，不再空等
+            time.sleep(0.6)
         if hit.get("x") or hit.get("noHit"):
-            break  #命中 / 下拉出来了但没这个值 —— 确定结果，不再空等
-        time.sleep(0.6)
+            break
+        print(f"[WebPatchFill] 模糊匹配下拉没弹出，重敲一次（第 {k + 2} 次）")
+        time.sleep(0.8)
     if hit.get("x"):
         cdp.click(hit["x"], hit["y"])
         time.sleep(1.5)
@@ -1602,12 +1749,13 @@ class WebSetForm(CustomAction):
             return False
         form = str(param.get("form", "") or "").strip()
         if form not in _FORMS:
-            print(f"[WebSetForm] 未知 form {form!r}，v1 可选: {list(_FORMS)}（直接调拨单冻结为前台基线）")
+            print(f"[WebSetForm] 未知 form {form!r}，可选: {list(_FORMS)}")
             return False
         global _ACTIVE_FORM
         _ACTIVE_FORM = form
-        print(f"[WebSetForm] 网页端单据已切到 {form}（明细 {len(_ENTRY_FIELDS)} 列 / "
-              f"单头 文本{len(_HEADER_TEXT_FIELDS)} F7{len(_HEADER_F7_FIELDS)} 下拉{len(_HEADER_COMBO_FIELDS)}）")
+        tbl = _tbl()
+        print(f"[WebSetForm] 网页端单据已切到 {form}（明细实体 {tbl['entry']} / {len(tbl['cells'])} 列 / "
+              f"单头 文本{len(tbl['text'])} F7{len(tbl['f7'])} 下拉{len(tbl['combo'])}）")
         return True
 
 
@@ -1626,12 +1774,12 @@ class WebNavigate(CustomAction):
         text = str(param.get("text", "") or "").strip()
         wait_label = str(param.get("wait_label", "") or "").strip()
         timeout_s = float(param.get("timeout_ms", 60000) or 60000) / 1000.0
-        header_key = _LABEL_TO_HEADER.get(wait_label)
+        header_key = _tbl()["labels"].get(wait_label)
         if not text:
             print("[WebNavigate] 缺 text（主控台入口文字，如 调拨申请单列表）")
             return False
         if not header_key:
-            print(f"[WebNavigate] wait_label {wait_label!r} 不在 _LABEL_TO_HEADER，编辑页没法判就位")
+            print(f"[WebNavigate] wait_label {wait_label!r} 不在当前单据的标签表，编辑页没法判就位")
             return False
 
         cdp = _open("WebNavigate")
@@ -1709,9 +1857,9 @@ class WebNewBill(CustomAction):
             pass  #读不到队列就按常规开新单，不报错
         wait_label = str(param.get("wait_label", "") or "").strip()
         timeout_s = float(param.get("timeout_ms", 60000) or 60000) / 1000.0
-        header_key = _LABEL_TO_HEADER.get(wait_label)
+        header_key = _tbl()["labels"].get(wait_label)
         if not header_key:
-            print(f"[WebNewBill] wait_label {wait_label!r} 不在 _LABEL_TO_HEADER，无法判就位")
+            print(f"[WebNewBill] wait_label {wait_label!r} 不在当前单据的标签表，无法判就位")
             return False
 
         cdp = _open("WebNewBill")
@@ -1744,11 +1892,20 @@ class WebNewBill(CustomAction):
 
             #③ 等重置完成：横幅消失 + 唯一草稿 + wait_label 字段可见
             #（点否后 pid 复用不变，金蝶把同一页签重置成新单，申请人等字段清空）
+            #横幅可能不止一条（多个页签各挂一条 / 点太快只关掉其中一条），所以这里反复点「否」，
+            #一次点不干净就再点，直到 8 次或横幅真消失（「否」=放弃保存，重复点也安全）
             deadline = time.time() + timeout_s
             last = ""
+            tries = 1
             while time.time() < deadline:
                 time.sleep(1.0)
-                gone = (cdp.js(_JS_DISCARD_NO).get("value") or {}).get("none")
+                nb = cdp.js(_JS_DISCARD_NO).get("value") or {}
+                gone = bool(nb.get("none"))
+                if not gone and nb.get("x") and tries < 8:
+                    cdp.click(nb["x"], nb["y"])
+                    tries += 1
+                    print(f"[WebNewBill] 横幅还在，再点一次「否」（第 {tries} 次）")
+                    continue
                 pid, err = _draft(cdp, "WebNewBill")
                 if not pid:
                     last = err or "无草稿"
@@ -1777,9 +1934,10 @@ class WebSetCell(CustomAction):
         if param is None:
             return False
         field = param.get("field")
-        spec = _ENTRY_FIELDS.get(field)
+        cells = _tbl()["cells"]
+        spec = cells.get(field)
         if not spec:
-            print(f"[WebSetCell] 未知field: {field!r}，可选: {sorted(_ENTRY_FIELDS)}")
+            print(f"[WebSetCell] 未知field: {field!r}，可选: {sorted(cells)}")
             return False
         key, kind = spec
         row = int(param.get("row", 0) or 0)
@@ -1848,9 +2006,10 @@ class WebFillColumn(CustomAction):
         if param is None:
             return False
         field = param.get("field")
-        spec = _ENTRY_FIELDS.get(field)
+        cells = _tbl()["cells"]
+        spec = cells.get(field)
         if not spec:
-            print(f"[WebFillColumn] 未知field: {field!r}，可选: {sorted(_ENTRY_FIELDS)}")
+            print(f"[WebFillColumn] 未知field: {field!r}，可选: {sorted(cells)}")
             return False
         key, kind = spec
         f7 = (kind is True)
@@ -1941,8 +2100,9 @@ class WebSetHeaderField(CustomAction):
                 print(f"[WebSetHeaderField] {err}")
                 return False
 
-            if field in _HEADER_TEXT_FIELDS:
-                key, _kind = _HEADER_TEXT_FIELDS[field]
+            tbl = _tbl()
+            if field in tbl["text"]:
+                key, _kind = tbl["text"][field]
                 #2 轮重试：网络横幅会吞掉 Tab 失焦提交（回读没过就是自己被吞了），清横幅后重跑本步
                 for rnd in range(2):
                     if self._set_text_once(cdp, pid, key, field, value):
@@ -1953,8 +2113,8 @@ class WebSetHeaderField(CustomAction):
                         time.sleep(2.0)
                 return False
 
-            if field in _HEADER_F7_FIELDS:
-                key = _HEADER_F7_FIELDS[field]
+            if field in tbl["f7"]:
+                key = tbl["f7"][field]
                 for rnd in range(2):
                     if self._pick_f7(cdp, pid, field, key, value):
                         return True
@@ -1964,11 +2124,11 @@ class WebSetHeaderField(CustomAction):
                         time.sleep(2.0)
                 return False
 
-            if field in _HEADER_COMBO_FIELDS:
+            if field in tbl["combo"]:
                 print(f"[WebSetHeaderField] {field} 是下拉，请配 WebPickCombo")
                 return False
             print(f"[WebSetHeaderField] 未知field: {field!r}，可选: "
-                  f"{sorted(set(_HEADER_TEXT_FIELDS) | set(_HEADER_F7_FIELDS) | set(_HEADER_COMBO_FIELDS))}")
+                  f"{sorted(set(tbl['text']) | set(tbl['f7']) | set(tbl['combo']))}")
             return False
         finally:
             cdp.close()
@@ -2102,9 +2262,10 @@ class WebPickCombo(CustomAction):
         if param is None:
             return False
         field = param.get("field")
-        key = _HEADER_COMBO_FIELDS.get(field)
+        combo = _tbl()["combo"]
+        key = combo.get(field)
         if not key:
-            print(f"[WebPickCombo] 未知field: {field!r}，可选: {sorted(_HEADER_COMBO_FIELDS)}")
+            print(f"[WebPickCombo] 未知field: {field!r}，可选: {sorted(combo)}")
             return False
         value = param.get("value")
         if value is None or str(value).strip() == "":
@@ -2196,7 +2357,7 @@ class WebReadCell(CustomAction):
         if param is None:
             return False
         field = param.get("field")
-        spec = _ENTRY_FIELDS.get(field)
+        spec = _tbl()["cells"].get(field)
         if not spec:
             print(f"[WebReadCell] 未知field: {field!r}")
             return False
@@ -2292,9 +2453,10 @@ class WebPatchFill(CustomAction):
         if param is None:
             return False
         field = param.get("field")
-        spec = _ENTRY_FIELDS.get(field)
+        cells = _tbl()["cells"]
+        spec = cells.get(field)
         if not spec:
-            print(f"[WebPatchFill] 未知field: {field!r}，可选: {sorted(_ENTRY_FIELDS)}")
+            print(f"[WebPatchFill] 未知field: {field!r}，可选: {sorted(cells)}")
             return False
         key, kind = spec
         srow = int(param.get("row", 0) or 0)
@@ -2372,6 +2534,24 @@ class WebPatchFill(CustomAction):
             filled = 0
             texts = []
             for rnd in range(2):
+                if rnd > 0:
+                    #上一轮批量填充的异步收尾可能把源格清掉（金蝶回包后会重渲染该格），
+                    #源格空了再点填充就是拿空值铺全列（实测第1轮 1/2、第2轮源格 ''、铺 0/2）。
+                    #重填一次源格再试，别白白浪费这一轮
+                    cur_src, cur_serr = _cell_text(cdp, pid, key, srow, "WebPatchFill")
+                    if not (cur_src or "").strip() or "select" in (cur_src or ""):
+                        print(f"[WebPatchFill] {field} 第{rnd + 1}轮前源格已空（{cur_src!r}），重填一次")
+                        if kind == "flex":
+                            ok2, d2 = _fill_flex(cdp, pid, key, srow, value, "WebPatchFill")
+                        else:
+                            ok2, d2 = _type_into_cell(cdp, pid, key, srow, value, (kind is True), "WebPatchFill")
+                            if ok2:
+                                ok2, d2 = _verify_cell(cdp, pid, key, srow, value, (kind is True), "WebPatchFill")
+                        if not ok2:
+                            print(f"[WebPatchFill] {field} 第{rnd + 1}轮重填源格失败: {d2}")
+                            _clear_windows(cdp)
+                            time.sleep(2.0)
+                            continue
                 xy = cdp.js(_JS_CELL_XY % (json.dumps(pid), json.dumps(key), str(srow)))
                 xy = xy.get("value") if "value" in xy else xy
                 if not (isinstance(xy, dict) and xy.get("x")):
@@ -2405,7 +2585,9 @@ class WebPatchFill(CustomAction):
                     continue
                 cdp.click(bf["x"], bf["y"])
 
-                #校验轮询 8s：批量填充是服务端回包，读一次就下结论会把"还没回来"当成空
+                #校验轮询：普通列 8s（服务端回包，读一次就下结论会把"还没回来"当成空）；
+                #弹性域（仓位）批量填充是逐行写维度、实测 8s 只铺到一半，短了会在 busy 中进下一轮把源值点没
+                poll_s = 16.0 if kind == "flex" else 8.0
                 #判据用「≥队列行数」而非等于 DOM 行数：粘完末尾可能多一行空行
                 #⚠️比对基准是【源格显示文本】而不是"非空"：金蝶组织内模式会把调入组织镜像成调出组织，
                 #  铺进去的是错值但非空，"非空计数"会假阳性报 7/7
@@ -2414,7 +2596,7 @@ class WebPatchFill(CustomAction):
                 comparable = bool(src) and "select" not in src
                 filled = 0
                 texts = []
-                deadline = time.time() + 8.0
+                deadline = time.time() + poll_s
                 while time.time() < deadline:
                     col = cdp.js(_JS_COL_TEXTS % (json.dumps(pid), json.dumps(key)))
                     col = col.get("value") if "value" in col else col
@@ -2466,9 +2648,10 @@ class WebBlockPaste(CustomAction):
         if param is None:
             return False
         field = param.get("field")
-        spec = _ENTRY_FIELDS.get(field)
+        cells = _tbl()["cells"]
+        spec = cells.get(field)
         if not spec:
-            print(f"[WebBlockPaste] 未知field: {field!r}，可选: {sorted(_ENTRY_FIELDS)}")
+            print(f"[WebBlockPaste] 未知field: {field!r}，可选: {sorted(cells)}")
             return False
         key, kind = spec
         if kind == "flex":
@@ -2532,9 +2715,25 @@ class WebBlockPaste(CustomAction):
             #不补行：金蝶块粘贴会自动扩行（1 行草稿粘 7 值 → 8 行），
             #几百物料一次粘贴即可；若先 _ensure_rows 反而退化成几百次点「新增行」
 
-            #① 右键首格 → 点「块粘贴」（菜单异步，重试两轮）
+            #① 先左键点一下首格：不点的话该格不是 current，右键菜单里没有「块粘贴」项
+            #（2026-11-26 实测：material 列首格偶然已是 current 时才成功，quantity 列必失败）
+            cdp.click(xy["x"], xy["y"])
+            time.sleep(0.6)
+            #点完会进编辑态，右键菜单里没有「块粘贴」；按 Escape 退编辑、格子仍是 current（实测菜单才出块粘贴）
+            cdp.key("Escape", "Escape", 27)
+            time.sleep(0.6)
+            #② 右键首格 → 点「块粘贴」（菜单异步，重试两轮）
+            #右键期间压掉浏览器原生菜单（金蝶没吃住的右键会漏出它，CDP 关不掉、会挡住后续点击）
+            cdp.js(_JS_CTX_GUARD_ON)
             dlg = {}
             for _ in range(2):
+                #本轮开头先复查弹窗：上一轮点了「块粘贴」后弹窗可能慢于轮询窗口才出现，
+                #那时再右键就是点在弹窗上，正好漏原生菜单
+                r = cdp.js(_JS_BLOCKPASTE_DIALOG)
+                got = r.get("value") if "value" in r else r
+                if isinstance(got, dict) and got.get("tx") and got.get("okx"):
+                    dlg = got
+                    break
                 for typ in ("mousePressed", "mouseReleased"):
                     cdp._cmd("Input.dispatchMouseEvent", {"type": typ, "x": xy["x"], "y": xy["y"],
                                                           "button": "right", "clickCount": 1})
@@ -2546,15 +2745,24 @@ class WebBlockPaste(CustomAction):
                     if isinstance(item, dict) and item.get("x"):
                         break
                 if isinstance(item, dict) and item.get("x"):
-                    cdp.click(item["x"], item["y"])
-                    for _ in range(8):
-                        time.sleep(0.5)
-                        r = cdp.js(_JS_BLOCKPASTE_DIALOG)
-                        dlg = r.get("value") if "value" in r else r
-                        if isinstance(dlg, dict) and dlg.get("tx") and dlg.get("okx"):
+                    #点菜单项：优先 JS 直接派发事件——CDP 物理点击偶尔只把菜单关掉、不触发项动作
+                    #（2026-11-26 实测：按菜单项坐标点下去菜单消失、不出弹窗）。JS 不行再物理点击兜底
+                    for how in ("js", "cdp"):
+                        if how == "js":
+                            pk = cdp.js(_JS_BLOCKPASTE_PICK)
+                            pk = pk.get("value") if "value" in pk else pk
+                            if not (isinstance(pk, dict) and pk.get("ok")):
+                                continue
+                        else:
+                            cdp.click(item["x"], item["y"])
+                        for _ in range(8):
+                            time.sleep(0.5)
+                            r = cdp.js(_JS_BLOCKPASTE_DIALOG)
+                            dlg = r.get("value") if "value" in r else r
+                            if isinstance(dlg, dict) and dlg.get("tx") and dlg.get("okx"):
+                                break
+                        if isinstance(dlg, dict) and dlg.get("tx"):
                             break
-                    if isinstance(dlg, dict) and dlg.get("tx"):
-                        break
                 cdp.key("Escape", "Escape", 27)
                 time.sleep(0.5)
             if not (isinstance(dlg, dict) and dlg.get("tx") and dlg.get("okx")):
@@ -2590,6 +2798,7 @@ class WebBlockPaste(CustomAction):
             print(f"[WebBlockPaste] {field} 块粘贴校验不足: 期望{len(nonempty)} 实到{sum(1 for x in texts if x)} texts={texts[:8]}")
             return False
         finally:
+            cdp.js(_JS_CTX_GUARD_OFF)
             cdp.close()
 
 

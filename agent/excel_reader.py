@@ -21,13 +21,15 @@ import openpyxl
 _TRANSFER_TYPES = ("组织内调拨", "跨组织调拨")
 
 
-def _c(excel, key, label, order=False, required=False):
-    #一列的声明：Excel表头 / 内部字段名 / 报错用中文名 / 整单以首行为准 / 首行必填
-    return {"excel": excel, "key": key, "label": label, "order": order, "required": required}
+def _c(excel, key, label, order=False, required=False, optional=False):
+    #一列的声明：Excel表头 / 内部字段名 / 报错用中文名 / 整单以首行为准 / 首行必填 / 表头可缺
+    #optional=True：这一列允许整列不在表头里（旧模版的表头没有它），缺了按空值处理，不影响其它列
+    return {"excel": excel, "key": key, "label": label, "order": order,
+            "required": required, "optional": optional}
 
 
 TEMPLATES = {
-    "transfer": [  #直接调拨单：组织是单头字段，调拨类型由两个组织是否相同推导
+    "transfer": [  #直接调拨单：两个库存组织是单头字段；调拨类型Excel填了就用，留空才按组织推导
         _c("物料编码", "material_code", "物料编码"),
         _c("数量", "quantity", "数量"),
         _c("调出仓库", "source_warehouse", "调出仓库", required=True),
@@ -36,6 +38,7 @@ TEMPLATES = {
         _c("调入仓位", "target_location", "调入仓位"),
         _c("调出库存组织", "source_org", "调出库存组织", order=True, required=True),
         _c("调入库存组织", "target_org", "调入库存组织", order=True, required=True),
+        _c("调拨类型", "transfer_type", "调拨类型", order=True, optional=True),  #留空=按两个组织是否相同推导；旧模版没这列也照跑
         _c("备注", "remark", "备注", order=True),
     ],
     "requisition": [  #调拨申请单：组织是明细列（金蝶里每行都有，但整单填同一个值），申请组织/申请人才是单头
@@ -73,7 +76,7 @@ class OrderItem:
     target_org: str = ""
     remark: str = ""
     apply_org: str = ""
-    transfer_type: str = ""  #调拨类型（申请单读Excel原文，直接调拨单由组织推导）
+    transfer_type: str = ""  #调拨类型（申请单必填读Excel原文；直接调拨单填了就用，留空按组织推导）
     apply_type: str = ""  #调拨申请类型（申请单专用，组合框；留空=保留金蝶默认）
     applicant: str = ""
     phone: str = ""
@@ -141,8 +144,10 @@ def _build_order(index, items, cols, template):
     if template == "transfer":
         #备注取整单第一个非空（直接调拨单没写备注就默认*；申请单模板里没有备注列，保持空串）
         order.remark = next((it.remark for it in items if it.remark), "") or "*"
-        #这两个值必须与金蝶「调拨类型」下拉项一字不差，文案有变时这里和管道都要同步改
-        order.transfer_type = "组织内调拨" if order.source_org == order.target_org else "跨组织调拨"
+        #调拨类型：Excel 填了就用填的（组织不同也照填，金蝶自己会校验拦下），留空才按两个组织是否相同推导。
+        #推导值必须与金蝶「调拨类型」下拉项一字不差，文案有变时这里和管道都要同步改
+        if not order.transfer_type:
+            order.transfer_type = "组织内调拨" if order.source_org == order.target_org else "跨组织调拨"
 
     if template == "requisition" and not order.demand_date:
         order.demand_date = _today_text()  #Excel列名写着（当天），留空就是今天
@@ -154,6 +159,12 @@ def _build_order(index, items, cols, template):
     for c in cols:
         if c["required"] and not getattr(first, c["key"]):
             raise ExcelFormatError(f"第 {first.row_index} 行：{c['label']}为空，每张单的首行必须填")
+
+    if template == "transfer" and order.transfer_type not in _TRANSFER_TYPES:
+        #下拉只有这两个候选，填别的必然被金蝶拦下，不如在 Excel 阶段就点名（留空是合法写法，用于自动推导）
+        raise ExcelFormatError(
+            f"第 {first.row_index} 行：调拨类型「{order.transfer_type}」不是合法值，"
+            f"只能填 {' 或 '.join(_TRANSFER_TYPES)}（留空=按调出/调入组织是否相同自动判断）")
 
     if template == "requisition" and order.transfer_type not in _TRANSFER_TYPES:
         #调拨类型在金蝶下拉里只有「组织内调拨/跨组织调拨」两个候选，填别的必然失败。
@@ -208,7 +219,7 @@ def read_orders(file_path, template="transfer"):
             if key in col_idx:
                 raise ExcelFormatError(f"表头第 {i + 1} 列「{name}」重复出现")  #同名列出现两次没法确定用哪个，报错
             col_idx[key] = i
-    missing = [c["excel"] for c in cols if c["key"] not in col_idx]
+    missing = [c["excel"] for c in cols if c["key"] not in col_idx and not c["optional"]]
     if missing:
         #缺列直接报错并把实际表头打出来，方便对着改Excel
         raise ExcelFormatError(f"表头缺少列: {', '.join(missing)}（实际读到的表头: {[str(t) for t in header]}）")
@@ -218,7 +229,9 @@ def read_orders(file_path, template="transfer"):
     current = []
 
     for row_no, row in enumerate(rows[1:], start=2):
-        values = {key: _norm_cell(row[col_idx[key]]) for key in header_map.values()}  #按列名取值，列在Excel里的先后顺序无所谓
+        #按列名取值，列在Excel里的先后顺序无所谓；表头可缺的列（旧模版）取不到就给空串
+        values = {key: _norm_cell(row[col_idx[key]]) if key in col_idx else ""
+                  for key in header_map.values()}
 
         if not any(values.values()):  #整行为空 = 单据分隔符
             if current:
